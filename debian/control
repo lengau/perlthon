@@ -1,0 +1,36 @@
+Source: perlthon
+Section: python
+Priority: optional
+Maintainer: Alex M. Lowe <alex.lowe@canonical.com>
+Build-Depends:
+ debhelper-compat (= 13),
+ cargo,
+ libcrypt-dev,
+ libperl-dev,
+ python3-all-dev,
+ python3-maturin,
+ python3-setuptools,
+ rustc,
+Standards-Version: 4.6.2
+Homepage: https://github.com/lengau/perlthon
+Vcs-Git: https://github.com/lengau/perlthon.git
+Vcs-Browser: https://github.com/lengau/perlthon
+Rules-Requires-Root: no
+
+Package: python3-perlthon
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, ${python3:Depends}
+Description: Natively import and run Perl modules from Python
+ Perlthon is a Python library that embeds a Perl interpreter, allowing you
+ to load and call Perl modules directly from Python. It is implemented in
+ Rust using PyO3, with a C glue layer wrapping Perl's embedding API.
+ .
+ The library handles automatic type conversion between Python and Perl types
+ and supports loading XS (compiled C) Perl modules via DynaLoader.
+ .
+ Features:
+  * perlthon.use() to load Perl modules
+  * perlthon.eval() to evaluate Perl code
+  * perlthon.call() for fully qualified function calls
+  * PerlModule proxy with attribute-based function calls
+  * Automatic type marshalling for str, int, float, bool, list, dict

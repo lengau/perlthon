@@ -1,0 +1,21 @@
+#!/usr/bin/make -f
+
+export CARGO_HOME = $(CURDIR)/debian/.cargo
+export PYBUILD_NAME = perlthon
+
+%:
+	dh $@ --with python3
+
+override_dh_auto_build:
+	maturin build --release --strip
+	pip3 install --root=debian/python3-perlthon --prefix=/usr --no-deps target/wheels/*.whl
+
+override_dh_auto_install:
+	# handled in build step
+
+override_dh_auto_test:
+	# Tests require the built extension; skip for now
+
+override_dh_auto_clean:
+	rm -rf target/
+	dh_auto_clean

@@ -1,0 +1,7 @@
+extend-diff-ignore = "^(\.venv|target|\.pytest_cache|__pycache__|src/perlthon/_core\.abi3\.so)"
+tar-ignore = .venv
+tar-ignore = target
+tar-ignore = .pytest_cache
+tar-ignore = __pycache__
+tar-ignore = *.abi3.so
+tar-ignore = *.pyc
