@@ -1,7 +1,7 @@
 [project]
 name = "perlthon"
 version = "0.1.0"
-description = "Add your description here"
+description = "Natively import and run Perl modules from Python"
 readme = "README.md"
 authors = [
     { name = "Alex M. Lowe", email = "alex.lowe@canonical.com" }
