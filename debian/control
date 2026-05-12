@@ -4,6 +4,7 @@ Priority: optional
 Maintainer: Alex M. Lowe <alex.lowe@canonical.com>
 Build-Depends:
  debhelper-compat (= 13),
+ dh-python,
  cargo,
  libcrypt-dev,
  libperl-dev,
