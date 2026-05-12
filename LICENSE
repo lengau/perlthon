@@ -1,0 +1,48 @@
+The Perlthon License (PPL v1.0)
+================================
+
+Copyright (c) 2026 Alex M. Lowe
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, sell copies of,
+and/or relicense the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+1. NO PRODUCTION USE
+
+   The Software SHALL NOT be used in any production environment, system, or
+   deployment. "Production" means any environment where the Software, or any
+   derivative work thereof, processes real data, serves real users, or performs
+   any function that anyone actually depends on.
+
+   Development, testing, staging, continuous integration, demos, prototypes,
+   proof-of-concept deployments, hackathons, fever dreams, and "I just wanted
+   to see if it would work" are all expressly permitted.
+
+2. IRREVOCABILITY OF SECTION 1
+
+   The restriction in Section 1 is perpetual, irrevocable, and SHALL survive
+   any relicensing, sublicensing, modification, or redistribution of the
+   Software. Any person who relicenses, sublicenses, or otherwise
+   redistributes the Software or any derivative work thereof MUST include this
+   Section 1 and this Section 2 verbatim, regardless of whatever other license
+   terms they choose to apply.
+
+   For the avoidance of doubt: you may relicense every other aspect of this
+   Software under any terms you wish — proprietary, copyleft, permissive, or
+   otherwise — but you may not remove, weaken, or modify the prohibition on
+   production use.
+
+3. NO WARRANTY
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+   IN THE SOFTWARE.
+
+   SERIOUSLY THOUGH, YOU WERE GOING TO USE THIS IN PRODUCTION?

@@ -5,27 +5,43 @@ Source: https://github.com/lengau/perlthon
 
 Files: *
 Copyright: 2026 Alex M. Lowe <alex.lowe@canonical.com>
-License: MIT
+License: PPL-1.0
 
 Files: debian/*
 Copyright: 2026 Alex M. Lowe <alex.lowe@canonical.com>
-License: MIT
+License: PPL-1.0
 
-License: MIT
- Permission is hereby granted, free of charge, to any person obtaining a
- copy of this software and associated documentation files (the "Software"),
- to deal in the Software without restriction, including without limitation
- the rights to use, copy, modify, merge, publish, distribute, sublicense,
- and/or sell copies of the Software, and to permit persons to whom the
- Software is furnished to do so, subject to the following conditions:
+License: PPL-1.0
+ The Perlthon License (PPL v1.0)
  .
- The above copyright notice and this permission notice shall be included
- in all copies or substantial portions of the Software.
+ Permission is hereby granted, free of charge, to any person obtaining a copy
+ of this software and associated documentation files (the "Software"), to deal
+ in the Software without restriction, including without limitation the rights
+ to use, copy, modify, merge, publish, distribute, sublicense, sell copies of,
+ and/or relicense the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
  .
- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
- CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
- TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
- SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ 1. NO PRODUCTION USE
+ .
+ The Software SHALL NOT be used in any production environment, system, or
+ deployment. "Production" means any environment where the Software, or any
+ derivative work thereof, processes real data, serves real users, or performs
+ any function that anyone actually depends on.
+ .
+ 2. IRREVOCABILITY OF SECTION 1
+ .
+ The restriction in Section 1 is perpetual, irrevocable, and SHALL survive
+ any relicensing, sublicensing, modification, or redistribution of the
+ Software. Any person who relicenses, sublicenses, or otherwise redistributes
+ the Software or any derivative work thereof MUST include Section 1 and
+ Section 2 verbatim, regardless of whatever other license terms they apply.
+ .
+ 3. NO WARRANTY
+ .
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+ IN THE SOFTWARE.
