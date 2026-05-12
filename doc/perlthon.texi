@@ -1,0 +1,191 @@
+\input texinfo   @c -*-texinfo-*-
+@c %**start of header
+@setfilename perlthon.info
+@settitle Perlthon
+@documentencoding UTF-8
+@c %**end of header
+
+@copying
+This manual is for Perlthon version 0.1.0, a Python library for natively
+importing and running Perl modules.
+
+Copyright @copyright{} 2026 Alex M. Lowe.
+@end copying
+
+@titlepage
+@title Perlthon
+@subtitle Natively import and run Perl modules from Python
+@subtitle Version 0.1.0
+@author Alex M. Lowe
+@page
+@insertcopying
+@end titlepage
+
+@contents
+
+@ifnottex
+@node Top
+@top Perlthon
+
+Perlthon is a Python library that embeds a Perl interpreter, allowing you
+to load and call Perl modules directly from Python.  It is implemented in
+Rust using PyO3, with a C glue layer wrapping Perl's embedding API.
+@end ifnottex
+
+@menu
+* Quick Start::         Getting started with Perlthon.
+* API Reference::       Detailed function reference.
+* Type Mapping::        How Python types map to Perl types.
+* Architecture::        How Perlthon works internally.
+* Prerequisites::       Build and runtime requirements.
+* Index::               Complete index.
+@end menu
+
+@node Quick Start
+@chapter Quick Start
+
+@example
+import perlthon
+
+# Evaluate Perl code directly
+perlthon.eval('"Hello " . "from Perl!"')  # "Hello from Perl!"
+
+# Load and use Perl modules
+posix = perlthon.use("POSIX")
+posix.floor(3.7)   # 3.0
+posix.ceil(3.2)    # 4.0
+
+# Call fully qualified Perl functions
+perlthon.call("POSIX::floor", 3.7)  # 3.0
+@end example
+
+@node API Reference
+@chapter API Reference
+
+@menu
+* perlthon.use::        Load a Perl module.
+* perlthon.eval::       Evaluate Perl code.
+* perlthon.call::       Call a Perl function.
+* PerlModule::          Module proxy object.
+@end menu
+
+@node perlthon.use
+@section @code{perlthon.use(module_name)}
+
+Load a Perl module, equivalent to Perl's @code{use} statement.  Returns a
+@code{PerlModule} proxy object where attribute access maps to function
+calls in that module's namespace.
+
+@example
+json = perlthon.use("JSON::PP")
+@end example
+
+The module is loaded idempotently --- calling @code{use()} multiple times
+for the same module is safe and will not raise an error.
+
+Raises @code{RuntimeError} if the module cannot be found or loaded.
+
+@node perlthon.eval
+@section @code{perlthon.eval(code)}
+
+Evaluate a string of Perl code and return the result, automatically
+converted to a Python type.
+
+@example
+perlthon.eval('[1, 2, 3]')         # [1, 2, 3]
+perlthon.eval('@{"a" => 1@}')      # @{"a": 1@}
+perlthon.eval('undef')             # None
+@end example
+
+Raises @code{RuntimeError} if the Perl code fails to compile or run.
+
+@node perlthon.call
+@section @code{perlthon.call(function_name, *args)}
+
+Call a Perl function by its fully qualified name.
+
+@example
+perlthon.call("POSIX::floor", 3.7)  # 3.0
+@end example
+
+Arguments are automatically converted from Python to Perl types before
+being passed to the function.
+
+@node PerlModule
+@section PerlModule Proxy
+
+The @code{PerlModule} object returned by @code{perlthon.use()} supports
+attribute access for calling functions:
+
+@example
+posix = perlthon.use("POSIX")
+posix.floor(3.7)  # calls POSIX::floor(3.7)
+@end example
+
+For OO-style method dispatch (passing the module name as the invocant),
+use the @code{call()} method:
+
+@example
+module.call("method", arg1, arg2)
+@end example
+
+@node Type Mapping
+@chapter Type Mapping
+
+The following type conversions are performed automatically:
+
+@multitable @columnfractions .4 .4
+@headitem Python @tab Perl
+@item @code{str} @tab String scalar
+@item @code{int} @tab Integer scalar (IV)
+@item @code{float} @tab Float scalar (NV)
+@item @code{bool} @tab @code{$true} / @code{$false}
+@item @code{None} @tab @code{undef}
+@item @code{list} @tab Array reference
+@item @code{dict} @tab Hash reference
+@end multitable
+
+@node Architecture
+@chapter Architecture
+
+Perlthon has a layered architecture:
+
+@example
+Python <-> perlthon (Python) <-> _core (Rust/PyO3) <-> perl_glue.c <-> libperl
+@end example
+
+@table @file
+@item perlthon/
+Pure Python API layer providing @code{use}, @code{eval}, @code{call}, and
+@code{PerlModule}.
+
+@item src/lib.rs
+Rust FFI bindings to the C glue, plus PyO3 wrapper classes exposing
+@code{PerlInterpreter} to Python.
+
+@item csrc/perl_glue.c
+Thin C wrapper around Perl's macro-heavy embedding API.  Handles
+interpreter lifecycle, @code{eval_pv}, @code{call_pv}, @code{call_method},
+SV type introspection, and value marshalling.
+
+@item build.rs
+Build script that discovers Perl via @code{ExtUtils::Embed}, compiles the
+C glue, and handles @code{libperl.so} discovery.
+@end table
+
+@node Prerequisites
+@chapter Prerequisites
+
+@itemize @bullet
+@item Python >= 3.12
+@item Perl development headers (@code{libperl-dev} on Debian/Ubuntu)
+@item @code{libcrypt-dev} (on Debian/Ubuntu)
+@item Rust toolchain (for building from source)
+@end itemize
+
+@node Index
+@unnumbered Index
+
+@printindex cp
+
+@bye

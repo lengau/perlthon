@@ -1,0 +1,134 @@
+.\" Manpage for perlthon
+.\" Copyright (c) 2026 Alex M. Lowe
+.TH PERLTHON 3 "May 2026" "perlthon 0.1.0" "Perlthon Python Library"
+.SH NAME
+perlthon \- natively import and run Perl modules from Python
+.SH SYNOPSIS
+.nf
+.B import perlthon
+.PP
+.B perlthon.use(\fImodule_name\fP)
+.B perlthon.eval(\fIcode\fP)
+.B perlthon.call(\fIfunction_name\fP, *\fIargs\fP)
+.fi
+.SH DESCRIPTION
+.B perlthon
+is a Python library that embeds a Perl interpreter, allowing you to load
+and call Perl modules directly from Python. It is implemented in Rust using
+PyO3, with a C glue layer wrapping Perl's embedding API.
+.PP
+The library handles automatic type conversion between Python and Perl types
+and supports loading XS (compiled C) Perl modules via DynaLoader.
+.SH FUNCTIONS
+.TP
+.BI "perlthon.use(" module_name ")"
+Load a Perl module (equivalent to Perl's
+.BR use ).
+Returns a
+.B PerlModule
+proxy object. The module is loaded idempotently; calling
+.B use()
+multiple times for the same module is safe.
+.TP
+.BI "perlthon.eval(" code ")"
+Evaluate a string of Perl code and return the result, converted to a Python
+type. Raises
+.B RuntimeError
+if the Perl code fails.
+.TP
+.BI "perlthon.call(" function_name ", " *args ")"
+Call a Perl function by its fully qualified name (e.g.,
+.BR POSIX::floor ).
+Arguments are converted from Python to Perl automatically.
+.SH PERLMODULE PROXY
+The
+.B PerlModule
+object returned by
+.B perlthon.use()
+supports attribute access for calling functions in the module's namespace:
+.PP
+.nf
+posix = perlthon.use("POSIX")
+posix.floor(3.7)    # calls POSIX::floor(3.7)
+.fi
+.PP
+For OO-style method dispatch (passing the module name as invocant), use the
+.B call()
+method:
+.PP
+.nf
+module.call("method", arg1, arg2)
+.fi
+.SH TYPE MAPPING
+.TP
+.B str
+Perl string scalar
+.TP
+.B int
+Perl integer scalar (IV)
+.TP
+.B float
+Perl float scalar (NV)
+.TP
+.B bool
+Perl \f(CW$true\fP / \f(CW$false\fP
+.TP
+.B None
+Perl undef
+.TP
+.B list
+Perl array reference
+.TP
+.B dict
+Perl hash reference
+.SH EXAMPLES
+.PP
+Evaluate arithmetic:
+.PP
+.nf
+>>> import perlthon
+>>> perlthon.eval("2 + 2")
+4
+.fi
+.PP
+String concatenation:
+.PP
+.nf
+>>> perlthon.eval('"hello " . "world"')
+\(aqhello world\(aq
+.fi
+.PP
+Use a module:
+.PP
+.nf
+>>> posix = perlthon.use("POSIX")
+>>> posix.floor(3.7)
+3.0
+>>> posix.ceil(3.2)
+4.0
+.fi
+.PP
+Complex data structures:
+.PP
+.nf
+>>> perlthon.eval('[1, 2, 3]')
+[1, 2, 3]
+>>> perlthon.eval('{"key" => "value"}')
+{\(aqkey\(aq: \(aqvalue\(aq}
+.fi
+.SH PREREQUISITES
+.IP \(bu 2
+Python >= 3.12
+.IP \(bu 2
+Perl development headers (libperl-dev)
+.IP \(bu 2
+Rust toolchain (for building from source)
+.SH BUGS
+Report bugs at https://github.com/lengau/perlthon/issues
+.SH AUTHOR
+Alex M. Lowe <alex.lowe@canonical.com>
+.SH SEE ALSO
+.BR perl (1),
+.BR python3 (1),
+.BR perlembed (1),
+.BR perlapi (3)

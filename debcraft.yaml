@@ -1,0 +1,49 @@
+name: python3-perlthon
+title: Perlthon
+version: '0.1.0'
+summary: Natively import and run Perl modules from Python
+description: |
+  Perlthon is a Python library that embeds a Perl interpreter, allowing you
+  to load and call Perl modules directly from Python. It is implemented in
+  Rust using PyO3, with a C glue layer wrapping Perl's embedding API.
+  .
+  The library handles automatic type conversion between Python and Perl types
+  and supports loading XS (compiled C) Perl modules via DynaLoader.
+base: ubuntu@24.04
+maintainer: Alex M. Lowe <alex.lowe@canonical.com>
+source-code: https://github.com/lengau/perlthon
+section: python
+
+platforms:
+  amd64:
+    build-on: [amd64]
+    build-for: [amd64]
+  arm64:
+    build-on: [arm64]
+    build-for: [arm64]
+
+packages:
+  python3-perlthon:
+    architectures: any
+    depends:
+      - libperl5.40
+      - python3
+    section: python
+    summary: Natively import and run Perl modules from Python
+
+parts:
+  perlthon:
+    plugin: nil
+    build-packages:
+      - cargo
+      - libcrypt-dev
+      - libperl-dev
+      - python3-dev
+      - python3-pip
+      - rustc
+    stage-packages:
+      - libperl5.40
+    override-build: |
+      pip install --break-system-packages maturin
+      maturin build --release
+      pip install --break-system-packages --prefix=$CRAFT_PART_INSTALL/usr target/wheels/*.whl
