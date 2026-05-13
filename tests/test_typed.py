@@ -75,9 +75,10 @@ class TestTypedModule:
         module = typed_module.TypedModule("Example")
 
         assert "class_" in dir(module)
-        assert "print_" in dir(module)
+        assert "print" in dir(module)
+        assert "print_" not in dir(module)
         assert module.class_(1) == ("Example::class", (1,))
-        assert module.print_("value") == ("Example::print", ("value",))
+        assert module.print("value") == ("Example::print", ("value",))
         assert getattr(module, "class") is module.class_
 
     def test_keyword_alias_caches_callable_when_alias_accessed_first(
@@ -128,15 +129,15 @@ class TestTypedModule:
         assert original_first is module.class_
         assert module.class_ is getattr(module, alias_name)
 
-    def test_build_name_map_handles_multi_suffix_collisions(self) -> None:
+    def test_build_name_map_preserves_builtin_names(self) -> None:
         typed_module = importlib.import_module("perlthon.typed")
 
         assert typed_module.build_name_map(["sum_", "sum"]) == {
-            "sum_": "sum",
-            "sum__": "sum_",
+            "sum": "sum",
+            "sum_": "sum_",
         }
 
-    def test_collision_safe_aliases_match_stub_resolution(self, monkeypatch) -> None:
+    def test_builtin_names_remain_directly_addressable(self, monkeypatch) -> None:
         typed_module = importlib.import_module("perlthon.typed")
 
         monkeypatch.setattr(
@@ -154,10 +155,9 @@ class TestTypedModule:
 
         assert "sum" in dir(module)
         assert "sum_" in dir(module)
-        assert "sum__" in dir(module)
+        assert "sum__" not in dir(module)
         assert module.sum(1, 2) == ("Example::sum", (1, 2))
-        assert module.sum_(1, 2) == ("Example::sum", (1, 2))
-        assert module.sum__(3, 4) == ("Example::sum_", (3, 4))
+        assert module.sum_(3, 4) == ("Example::sum_", (3, 4))
 
     def test_repr_is_informative(self) -> None:
         posix = perlthon.typed("POSIX")
@@ -247,10 +247,10 @@ class TestGenerateStubs:
 
         assert "class POSIX(TypedModule):" in posix_stub
         assert "def floor(self, *args: Any) -> Any:" in posix_stub
-        assert "# Perl: sum -> Python: sum_" in list_util_stub
-        assert "def sum_(self, *args: Any) -> Any:" in list_util_stub
+        assert "def sum(self, *args: Any) -> Any:" in list_util_stub
+        assert "# Perl: sum -> Python: sum_" not in list_util_stub
 
-    def test_generated_stub_renames_python_keywords_and_builtins(
+    def test_generated_stub_renames_only_python_keywords(
         self, monkeypatch, tmp_path: Path
     ) -> None:
         stubs = importlib.import_module("perlthon.stubs")
@@ -267,9 +267,9 @@ class TestGenerateStubs:
         stub_text = (tmp_path / "Example" / "Keywords.pyi").read_text(encoding="utf-8")
 
         assert "# Perl: class -> Python: class_" in stub_text
-        assert "# Perl: print -> Python: print_" in stub_text
+        assert "# Perl: print -> Python: print_" not in stub_text
         assert "def class_(self, *args: Any) -> Any:" in stub_text
-        assert "def print_(self, *args: Any) -> Any:" in stub_text
+        assert "def print(self, *args: Any) -> Any:" in stub_text
         assert "def normal(self, *args: Any) -> Any:" in stub_text
         compile(stub_text, str(tmp_path / "Example" / "Keywords.pyi"), "exec")
 
@@ -291,10 +291,10 @@ class TestGenerateStubs:
             encoding="utf-8"
         )
 
-        assert "# Perl: sum -> Python: sum_" in stub_text
-        assert "# Perl: sum_ -> Python: sum__" in stub_text
+        assert "# Perl: sum -> Python: sum_" not in stub_text
+        assert "# Perl: sum_ -> Python: sum__" not in stub_text
+        assert "def sum(self, *args: Any) -> Any:" in stub_text
         assert "def sum_(self, *args: Any) -> Any:" in stub_text
-        assert "def sum__(self, *args: Any) -> Any:" in stub_text
         compile(stub_text, str(tmp_path / "Example" / "Collisions.pyi"), "exec")
 
     def test_generated_posix_stub_is_valid_python(self, tmp_path: Path) -> None:

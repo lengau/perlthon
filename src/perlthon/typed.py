@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import builtins
 import keyword
 from typing import Any
 
@@ -34,10 +33,6 @@ _EXCLUDED_SYMBOLS = frozenset(
     }
 )
 
-_PYTHON_RESERVED_NAMES = frozenset(
-    name for name in dir(builtins) if name.isidentifier() and not name.startswith("_")
-)
-
 _RESERVED_TYPED_METHOD_NAMES = frozenset({"available_functions"})
 
 
@@ -55,11 +50,7 @@ def _is_discoverable_symbol(name: str) -> bool:
 
 
 def _needs_python_safe_name(name: str) -> bool:
-    return (
-        keyword.iskeyword(name)
-        or keyword.issoftkeyword(name)
-        or name in _PYTHON_RESERVED_NAMES
-    )
+    return keyword.iskeyword(name)
 
 
 def _python_safe_name(name: str) -> str:
