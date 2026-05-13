@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -19,6 +21,41 @@ def test_is_installed_returns_false_for_missing_module() -> None:
 
 def test_get_lib_dir_returns_path() -> None:
     assert isinstance(cpan.get_lib_dir(), Path)
+
+
+def test_importing_cpan_does_not_mutate_environment() -> None:
+    code = "\n".join(
+        [
+            "import os",
+            "import sys",
+            "import types",
+            "from pathlib import Path",
+            "repo = Path.cwd()",
+            "sys.path.insert(0, str(repo / 'src'))",
+            "core = types.ModuleType('perlthon._core')",
+            "core.PerlInterpreter = type('PerlInterpreter', (), {})",
+            "core.hello_from_bin = lambda: 'hello'",
+            "sys.modules['perlthon._core'] = core",
+            "before = dict(os.environ)",
+            "from perlthon import cpan",
+            "after = dict(os.environ)",
+            (
+                "diff = {k: (before.get(k), after.get(k)) "
+                "for k in set(before) | set(after) "
+                "if before.get(k) != after.get(k)}"
+            ),
+            "assert not diff, f'Environment mutated on import: {diff}'",
+        ]
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        check=False,
+        cwd=Path(__file__).resolve().parents[1],
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_installed_returns_list() -> None:

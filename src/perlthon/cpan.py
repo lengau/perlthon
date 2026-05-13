@@ -10,14 +10,13 @@ from pathlib import Path
 from ._perl import _find_perl
 
 _MODULE_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$")
-_DEFAULT_HOME_LIB = Path.home() / ".local" / "share" / "perlthon" / "lib"
 
 
 def get_lib_dir() -> Path:
     """Return the default local::lib root used for CPAN installs."""
     if sys.prefix != sys.base_prefix:
         return Path(sys.prefix) / "perl5lib"
-    return _DEFAULT_HOME_LIB
+    return Path.home() / ".local" / "share" / "perlthon" / "lib"
 
 
 def _normalize_lib_dir(lib: str | None) -> Path:
@@ -156,7 +155,5 @@ def installed() -> list[str]:
     stdout = result.stdout.strip()
     return stdout.splitlines() if stdout else []
 
-
-_apply_local_lib_env(os.environ, get_lib_dir())
 
 __all__ = ["get_lib_dir", "install", "installed", "is_installed"]
