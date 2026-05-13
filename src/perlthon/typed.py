@@ -67,11 +67,19 @@ def _python_safe_name(name: str) -> str:
 
 
 def build_name_map(perl_functions: list[str]) -> dict[str, str]:
+    distinct_functions = sorted(set(perl_functions))
+    natural_names = {
+        perl_name
+        for perl_name in distinct_functions
+        if not _needs_python_safe_name(perl_name)
+    }
     used_names = set(_RESERVED_TYPED_METHOD_NAMES)
     name_map: dict[str, str] = {}
-    for perl_name in sorted(set(perl_functions)):
+    for perl_name in distinct_functions:
         python_name = _python_safe_name(perl_name)
-        while python_name in used_names:
+        while python_name in used_names or (
+            python_name in natural_names and python_name != perl_name
+        ):
             python_name += "_"
         used_names.add(python_name)
         name_map[python_name] = perl_name

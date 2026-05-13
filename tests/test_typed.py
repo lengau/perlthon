@@ -137,6 +137,14 @@ class TestTypedModule:
             "sum_": "sum_",
         }
 
+    def test_build_name_map_preserves_real_name_over_keyword_alias(self) -> None:
+        typed_module = importlib.import_module("perlthon.typed")
+
+        assert typed_module.build_name_map(["class", "class_"]) == {
+            "class_": "class_",
+            "class__": "class",
+        }
+
     def test_builtin_names_remain_directly_addressable(self, monkeypatch) -> None:
         typed_module = importlib.import_module("perlthon.typed")
 
@@ -180,6 +188,29 @@ class TestTypedModule:
         assert module.available_functions_() == ("Example::available_functions", ())
         assert module.available_functions() == ["available_functions"]
         assert "available_functions" not in module.__dict__
+
+    def test_keyword_alias_yields_to_existing_function_name(
+        self, monkeypatch
+    ) -> None:
+        typed_module = importlib.import_module("perlthon.typed")
+
+        monkeypatch.setattr(
+            typed_module,
+            "_introspect_module",
+            lambda module_name: ["class", "class_"],
+        )
+        monkeypatch.setattr(
+            typed_module,
+            "perl_call",
+            lambda target, *args: (target, args),
+        )
+
+        module = typed_module.TypedModule("Example")
+
+        assert module.class_(1) == ("Example::class_", (1,))
+        assert getattr(module, "class")(2) == ("Example::class", (2,))
+        assert module.class__(3) == ("Example::class", (3,))
+        assert getattr(module, "class") is module.class__
 
     def test_repr_is_informative(self) -> None:
         posix = perlthon.typed("POSIX")
@@ -318,6 +349,28 @@ class TestGenerateStubs:
         assert "def sum(self, *args: Any) -> Any:" in stub_text
         assert "def sum_(self, *args: Any) -> Any:" in stub_text
         compile(stub_text, str(tmp_path / "Example" / "Collisions.pyi"), "exec")
+
+    def test_generated_stub_preserves_real_name_over_keyword_alias(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        stubs = importlib.import_module("perlthon.stubs")
+
+        monkeypatch.setattr(
+            stubs,
+            "_introspect_module",
+            lambda module_name: ["class", "class_"],
+        )
+        monkeypatch.setattr(stubs, "_pod_docs", lambda module_name, functions: {})
+
+        stubs.generate_stubs(["Example::Keywords"], output_dir=str(tmp_path))
+
+        stub_text = (tmp_path / "Example" / "Keywords.pyi").read_text(encoding="utf-8")
+
+        assert "# Perl: class -> Python: class__" in stub_text
+        assert "# Perl: class_ -> Python: class__" not in stub_text
+        assert "def class_(self, *args: Any) -> Any:" in stub_text
+        assert "def class__(self, *args: Any) -> Any:" in stub_text
+        compile(stub_text, str(tmp_path / "Example" / "Keywords.pyi"), "exec")
 
     def test_generated_posix_stub_is_valid_python(self, tmp_path: Path) -> None:
         perlthon.generate_stubs(["POSIX"], output_dir=str(tmp_path))
