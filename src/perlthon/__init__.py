@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any
 
 from perlthon._core import PerlInterpreter as _PerlInterpreter
 from perlthon._core import hello_from_bin
-from perlthon._core import register_callback as _register_callback
 
 from . import cpan as cpan
 
@@ -118,8 +117,8 @@ def register(
     """Register a Python callable as a Perl subroutine."""
 
     def decorator(callback: Callable[..., object]) -> Callable[..., object]:
-        _get_interpreter()
-        _register_callback(name, callback)
+        interp = _get_interpreter()
+        interp.register_callback(name, callback)
         return callback
 
     if func is None:

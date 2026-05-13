@@ -72,6 +72,18 @@ class TestCallbacks:
         assert first.eval("Scoped::name()") == "first"
         assert second.eval("Scoped::name()") == "second"
 
+    def test_register_uses_module_interpreter(self):
+        assert perlthon.eval("40 + 2") == 42
+
+        other = PerlInterpreter()
+        assert other.eval("6 * 7") == 42
+
+        perlthon.register("Scoped::global_name", lambda: "module")
+
+        assert perlthon.eval("Scoped::global_name()") == "module"
+        with pytest.raises(RuntimeError, match="Undefined subroutine"):
+            other.eval("Scoped::global_name()")
+
     def test_callbacks_removed_when_interpreter_drops(self):
         class Callback:
             def __call__(self):
