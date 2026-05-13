@@ -13,6 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Use upstream crates (not vendored)
+        run: rm -f .cargo/config.toml
       - uses: PyO3/maturin-action@v1
         with:
           command: sdist
@@ -26,13 +28,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install Perl dev headers
-        run: sudo apt-get update && sudo apt-get install -y libperl-dev libcrypt-dev
+      - name: Use upstream crates (not vendored)
+        run: rm -f .cargo/config.toml
       - uses: PyO3/maturin-action@v1
         with:
           target: x86_64-unknown-linux-gnu
           manylinux: auto
           args: --release --out dist
+          before-script-linux: |
+            apt-get update && apt-get install -y libperl-dev libcrypt-dev
       - uses: actions/upload-artifact@v4
         with:
           name: wheel-linux-amd64
@@ -42,6 +46,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Use upstream crates (not vendored)
+        run: rm -f .cargo/config.toml
       - uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
@@ -61,6 +67,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Use upstream crates (not vendored)
+        run: rm -f .cargo/config.toml
       - uses: docker/setup-qemu-action@v3
         with:
           platforms: riscv64
@@ -87,6 +95,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Use upstream crates (not vendored)
+        run: rm -f .cargo/config.toml
       - uses: docker/setup-qemu-action@v3
         with:
           platforms: riscv64
