@@ -70,6 +70,10 @@ class TestTypedModule:
         with pytest.raises(RuntimeError):
             perlthon.typed("This::Module::Does::Not::Exist")
 
+    def test_typed_validates_module_names(self) -> None:
+        with pytest.raises(ValueError, match="Invalid Perl module name"):
+            perlthon.typed("Bad Module")
+
 
 class TestGenerateStubs:
     def test_docstring_block_escapes_triple_quotes(self) -> None:
@@ -147,3 +151,7 @@ class TestGenerateStubs:
         assert "class POSIX(TypedModule):" in posix_stub
         assert "def floor(self, *args: Any) -> Any:" in posix_stub
         assert "def sum(self, *args: Any) -> Any:" in list_util_stub
+
+    def test_generate_stubs_validates_module_names(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="Invalid Perl module name"):
+            perlthon.generate_stubs(["Bad Module"], output_dir=str(tmp_path))

@@ -28,12 +28,11 @@ class TestNamespaceProxy:
         ns = modules.File.Basename.basename
         assert repr(ns) == "PerlNamespace(File::Basename::basename)"
 
-    def test_underscore_to_dot(self):
-        """Double underscores in Python names map to dots in Perl segment names."""
+    def test_double_underscore_remains_valid_identifier(self):
         from perlthon import modules
 
         ns = modules.Some__Module
-        assert repr(ns) == "PerlNamespace(Some.Module)"
+        assert repr(ns) == "PerlNamespace(Some__Module)"
 
     def test_private_attr_raises(self):
         from perlthon import modules
@@ -141,6 +140,18 @@ class TestEdgeCases:
 
         with pytest.raises(RuntimeError):
             modules.Totally.Fake.Module.nonexistent()
+
+    def test_namespace_proxy_validates_module_names(self):
+        namespace = _PerlNamespace(["Bad Module", "floor"])
+
+        with pytest.raises(ValueError, match="Invalid Perl module name"):
+            namespace()
+
+    def test_namespace_proxy_validates_function_names(self):
+        namespace = _PerlNamespace(["POSIX", "floor; print qq(INJECTED\\n)"])
+
+        with pytest.raises(ValueError, match="Invalid Perl function name"):
+            namespace(3.7)
 
     def test_multiple_calls_same_proxy(self):
         """Proxy is reusable — each call is independent."""

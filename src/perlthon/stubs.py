@@ -5,17 +5,11 @@ import subprocess
 from pathlib import Path
 
 from ._perl import _find_perl
+from ._validation import validate_module_name
 from .typed import _introspect_module
 
 _POD_MARKUP_RE = re.compile(r"[A-Z]<([^>]+)>")
 _POD_NAME_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)")
-_MODULE_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)*$")
-
-
-def _validate_module_name(name: str) -> str:
-    if not _MODULE_NAME_RE.match(name):
-        raise ValueError(f"Invalid Perl module name: {name!r}")
-    return name
 
 
 def _class_name(module_name: str) -> str:
@@ -38,7 +32,7 @@ def _ensure_packages(root: Path, path: Path) -> None:
 
 
 def _module_file(module_name: str) -> Path | None:
-    module_name = _validate_module_name(module_name)
+    module_name = validate_module_name(module_name)
     script = (
         "use strict; use warnings; my $module = shift @ARGV;"
         "(my $file = $module) =~ s!::!/!g; $file .= '.pm';"
@@ -159,7 +153,7 @@ def generate_stubs(modules: list[str], output_dir: str) -> None:
     root.mkdir(parents=True, exist_ok=True)
 
     for module_name in modules:
-        module_name = _validate_module_name(module_name)
+        module_name = validate_module_name(module_name)
         functions = _introspect_module(module_name)
         stub_path = _stub_path(root, module_name)
         stub_path.parent.mkdir(parents=True, exist_ok=True)

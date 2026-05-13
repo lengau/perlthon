@@ -84,6 +84,14 @@ class TestCallbacks:
         with pytest.raises(RuntimeError, match="Undefined subroutine"):
             other.eval("Scoped::global_name()")
 
+    def test_register_validates_callback_names(self):
+        with pytest.raises(ValueError, match="Invalid Perl function name"):
+            perlthon.register("Bad Name", lambda: None)
+
+        interp = PerlInterpreter()
+        with pytest.raises(ValueError, match="Invalid Perl function name"):
+            interp.register_callback("Bad Name", lambda: None)
+
     def test_callbacks_removed_when_interpreter_drops(self):
         class Callback:
             def __call__(self):
