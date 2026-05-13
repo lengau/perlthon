@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+from collections.abc import Callable
 from typing import Any
 
 from perlthon._core import PerlInterpreter as _PerlInterpreter
@@ -9,6 +11,13 @@ from perlthon._core import hello_from_bin
 
 # Type alias for values returned from Perl
 type PerlValue = str | int | float | bool | list[Any] | dict[str, Any] | None
+
+type InterpreterGetter = Callable[[], _PerlInterpreter]
+
+
+class _ClosedInterpreterError(RuntimeError):
+    def __init__(self) -> None:
+        super().__init__("Interpreter is closed")
 
 
 def hello() -> str:
@@ -28,19 +37,21 @@ def _get_interpreter() -> _PerlInterpreter:
 class PerlModule:
     """A loaded Perl module, supporting attribute-based method calls."""
 
-    def __init__(self, name: str) -> None:
+    def __init__(
+        self, name: str, get_interp: InterpreterGetter = _get_interpreter
+    ) -> None:
         self._name = name
-        self._interp = _get_interpreter()
+        self._get_interp = get_interp
 
     def __repr__(self) -> str:
         return f"PerlModule({self._name!r})"
 
     def __getattr__(self, name: str) -> PerlCallable:
-        return PerlCallable(self._interp, self._name, name)
+        return PerlCallable(self._get_interp, self._name, name)
 
     def call(self, method: str, *args: object) -> PerlValue:
         """Call a method on this Perl module (OO-style, passes module as invocant)."""
-        return self._interp.call_method(self._name, method, list(args))
+        return self._get_interp().call_method(self._name, method, list(args))
 
 
 class PerlCallable:
@@ -51,8 +62,13 @@ class PerlCallable:
     ``module.call("method", ...)``.
     """
 
-    def __init__(self, interp: _PerlInterpreter, module: str, method: str) -> None:
-        self._interp = interp
+    def __init__(
+        self,
+        get_interp: InterpreterGetter,
+        module: str,
+        method: str,
+    ) -> None:
+        self._get_interp = get_interp
         self._module = module
         self._method = method
 
@@ -61,7 +77,48 @@ class PerlCallable:
 
     def __call__(self, *args: object) -> PerlValue:
         fqn = f"{self._module}::{self._method}"
-        return self._interp.call_function(fqn, list(args))
+        return self._get_interp().call_function(fqn, list(args))
+
+
+class Interpreter:
+    """A dedicated Perl interpreter with an explicit lifecycle."""
+
+    def __init__(self) -> None:
+        self._interp: _PerlInterpreter | None = _PerlInterpreter()
+        self._lock = threading.Lock()
+
+    def _get_interp(self) -> _PerlInterpreter:
+        with self._lock:
+            if self._interp is None:
+                raise _ClosedInterpreterError()
+            return self._interp
+
+    def eval(self, code: str) -> PerlValue:
+        return self._get_interp().eval(code)
+
+    def use(self, module_name: str) -> PerlModule:
+        interp = self._get_interp()
+        interp.use_module(module_name)
+        return PerlModule(module_name, self._get_interp)
+
+    def call(self, function_name: str, *args: object) -> PerlValue:
+        return self._get_interp().call_function(function_name, list(args))
+
+    def close(self) -> None:
+        with self._lock:
+            self._interp = None
+
+    def __enter__(self) -> Interpreter:
+        self._get_interp()
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+        self.close()
+
+
+def interpreter() -> Interpreter:
+    """Create a dedicated Perl interpreter instance."""
+    return Interpreter()
 
 
 def use(module_name: str) -> PerlModule:
@@ -88,8 +145,7 @@ def call(function_name: str, *args: object) -> PerlValue:
     Returns:
         The return value from Perl, converted to a Python type.
     """
-    interp = _get_interpreter()
-    return interp.call_function(function_name, list(args))
+    return _get_interpreter().call_function(function_name, list(args))
 
 
 def eval(code: str) -> PerlValue:
@@ -101,5 +157,4 @@ def eval(code: str) -> PerlValue:
     Returns:
         The result of the evaluation, converted to a Python type.
     """
-    interp = _get_interpreter()
-    return interp.eval(code)
+    return _get_interpreter().eval(code)
