@@ -1,15 +1,23 @@
 from __future__ import annotations
 
+import importlib
 import os
+import shlex
 import shutil
 import subprocess
 import sys
 import textwrap
+import types
 from pathlib import Path
 
 import pytest
 
-from perlthon import cpan
+core = types.ModuleType("perlthon._core")
+core.PerlInterpreter = type("PerlInterpreter", (), {})
+core.hello_from_bin = lambda: "hello"
+sys.modules.setdefault("perlthon._core", core)
+
+cpan = importlib.import_module("perlthon.cpan")
 
 
 def test_is_installed_returns_true_for_core_modules() -> None:
@@ -78,6 +86,13 @@ def test_importing_perlthon_does_not_mutate_environment() -> None:
                 """
                 import json
                 import os
+                import sys
+                import types
+
+                core = types.ModuleType("perlthon._core")
+                core.PerlInterpreter = type("PerlInterpreter", (), {})
+                core.hello_from_bin = lambda: "hello"
+                sys.modules["perlthon._core"] = core
 
                 before = dict(os.environ)
                 import perlthon  # noqa: F401
@@ -114,11 +129,17 @@ def test_importing_cpan_does_not_require_home_directory() -> None:
             textwrap.dedent(
                 """
                 import pathlib
+                import sys
+                import types
 
                 def fail_home(cls):
                     raise RuntimeError("home used at import time")
 
                 pathlib.Path.home = classmethod(fail_home)
+                core = types.ModuleType("perlthon._core")
+                core.PerlInterpreter = type("PerlInterpreter", (), {})
+                core.hello_from_bin = lambda: "hello"
+                sys.modules["perlthon._core"] = core
                 import perlthon
                 from perlthon import cpan  # noqa: F401
                 """
@@ -165,6 +186,46 @@ def test_apply_local_lib_env_quotes_paths_with_spaces() -> None:
     assert env["PERL_MM_OPT"] == f"INSTALL_BASE='{lib_dir}'"
 
 
+def test_cpanm_env_strips_ambient_perl_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lib_dir = Path("/safe/perl5")
+    monkeypatch.setenv("PERL5OPT", "-MStrict")
+    monkeypatch.setenv("PERLLIB", "/unsafe/perllib")
+    monkeypatch.setenv("PERL5LIB", "/unsafe/perl5lib")
+    monkeypatch.setenv("PERL_CPANM_OPT", "--from http://evil.invalid")
+    monkeypatch.setenv("PERL_MM_USE_DEFAULT", "1")
+
+    env = cpan._cpanm_env(lib_dir)
+
+    assert "PERL5OPT" not in env
+    assert "PERLLIB" not in env
+    assert "PERL_CPANM_OPT" not in env
+    assert "PERL_MM_USE_DEFAULT" not in env
+    assert env["PERL5LIB"] == str(lib_dir / "lib" / "perl5")
+    assert env["PERL_LOCAL_LIB_ROOT"] == str(lib_dir)
+    assert env["PERL_MB_OPT"] == f"--install_base {shlex.quote(str(lib_dir))}"
+    assert env["PERL_MM_OPT"] == f"INSTALL_BASE={shlex.quote(str(lib_dir))}"
+
+
+def test_cpanm_env_without_lib_dir_strips_ambient_perl_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PERL5OPT", "-MStrict")
+    monkeypatch.setenv("PERLLIB", "/unsafe/perllib")
+    monkeypatch.setenv("PERL5LIB", "/unsafe/perl5lib")
+    monkeypatch.setenv("PERL_CPANM_OPT", "--from http://evil.invalid")
+    monkeypatch.setenv("PERL_MM_USE_DEFAULT", "1")
+
+    env = cpan._cpanm_env()
+
+    assert "PERL5OPT" not in env
+    assert "PERLLIB" not in env
+    assert "PERL5LIB" not in env
+    assert "PERL_CPANM_OPT" not in env
+    assert "PERL_MM_USE_DEFAULT" not in env
+
+
 def test_install_uses_trusted_https_mirror_and_sanitizes_cpanm_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -175,8 +236,12 @@ def test_install_uses_trusted_https_mirror_and_sanitizes_cpanm_env(
     )
     monkeypatch.setattr(cpan, "_find_perl", lambda: "/usr/bin/perl")
     monkeypatch.setattr(cpan, "_reset_interpreter", lambda: None)
+    monkeypatch.setenv("PERL5OPT", "-MStrict")
+    monkeypatch.setenv("PERLLIB", "/unsafe/perllib")
+    monkeypatch.setenv("PERL5LIB", "/unsafe/perl5lib")
     monkeypatch.setenv("PERL_CPANM_OPT", "--from http://evil.invalid")
     monkeypatch.setenv("PERL_CPANM_HOME", "/unsafe/home")
+    monkeypatch.setenv("PERL_MM_USE_DEFAULT", "1")
 
     def fake_run(
         args: list[str],
@@ -206,8 +271,12 @@ def test_install_uses_trusted_https_mirror_and_sanitizes_cpanm_env(
         "Try::Tiny",
     ]
     assert install_env is not None
+    assert "PERL5OPT" not in install_env
+    assert "PERLLIB" not in install_env
     assert "PERL_CPANM_OPT" not in install_env
     assert "PERL_CPANM_HOME" not in install_env
+    assert "PERL_MM_USE_DEFAULT" not in install_env
+    assert install_env["PERL5LIB"] == str(cpan.get_lib_dir() / "lib" / "perl5")
 
 
 def test_install_accepts_https_mirror_override(monkeypatch: pytest.MonkeyPatch) -> None:

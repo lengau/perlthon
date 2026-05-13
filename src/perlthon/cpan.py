@@ -14,7 +14,7 @@ from ._perl import _find_perl
 
 _MODULE_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$")
 _DEFAULT_CPAN_MIRROR = "https://cpan.metacpan.org"
-_CPANM_ENV_PREFIX = "PERL_CPANM_"
+_PERL_ENV_PREFIX = "PERL"
 
 
 def _default_home_lib() -> Path:
@@ -68,7 +68,7 @@ def _perl_env(lib_dir: Path) -> dict[str, str]:
 def _cpanm_env(lib_dir: Path | None = None) -> dict[str, str]:
     env = os.environ.copy()
     for key in tuple(env):
-        if key.startswith(_CPANM_ENV_PREFIX):
+        if key.startswith(_PERL_ENV_PREFIX):
             env.pop(key, None)
     if lib_dir is not None:
         _apply_local_lib_env(env, lib_dir)
