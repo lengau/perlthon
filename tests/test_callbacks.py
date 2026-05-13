@@ -1,7 +1,12 @@
 """Tests for Python-to-Perl callback registration."""
 
 import gc
+import os
+import subprocess
+import sys
+import textwrap
 import weakref
+from pathlib import Path
 
 import pytest
 
@@ -91,6 +96,39 @@ class TestCallbacks:
         interp = PerlInterpreter()
         with pytest.raises(ValueError, match="Invalid Perl function name"):
             interp.register_callback("Bad Name", lambda: None)
+
+    def test_callback_can_reenter_same_interpreter(self):
+        pythonpath = os.pathsep.join(
+            entry
+            for entry in [str(Path.cwd() / "src"), os.environ.get("PYTHONPATH", "")]
+            if entry
+        )
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                textwrap.dedent(
+                    """
+                    import perlthon
+
+                    @perlthon.register("Reenter::callback")
+                    def callback():
+                        return perlthon.eval("41 + 1")
+
+                    print(perlthon.eval("Reenter::callback()"))
+                    """
+                ),
+            ],
+            capture_output=True,
+            check=False,
+            cwd=Path(__file__).resolve().parents[1],
+            env={**os.environ, "PYTHONPATH": pythonpath},
+            text=True,
+            timeout=10,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == "42"
 
     def test_callbacks_removed_when_interpreter_drops(self):
         class Callback:

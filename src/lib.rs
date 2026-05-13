@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 use std::ffi::{CStr, CString, c_char, c_double, c_int, c_longlong};
+use std::ops::Deref;
 use std::ptr;
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Condvar, LazyLock, Mutex};
+use std::thread::{self, ThreadId};
 
-use pyo3::exceptions::{PyRuntimeError, PyValueError};
+use pyo3::exceptions::{PyRecursionError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};
 
@@ -20,6 +22,7 @@ struct SV {
 // FFI declarations for our C glue
 unsafe extern "C" {
     fn perlthon_alloc() -> *mut PerlInterpreterC;
+    fn perlthon_last_bootstrap_error() -> *const c_char;
     fn perlthon_init(interp: *mut PerlInterpreterC) -> c_int;
     fn perlthon_destroy(interp: *mut PerlInterpreterC);
 
@@ -104,6 +107,105 @@ static CALLBACK_REGISTRY: LazyLock<Mutex<CallbackRegistry>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 static CURRENT_INTERPRETER: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 
+const MAX_CONVERSION_DEPTH: usize = 100;
+const PERL_VALUE_RECURSION_ERROR: &str =
+    "Maximum recursion depth exceeded in Perl value conversion";
+const PYTHON_VALUE_RECURSION_ERROR: &str =
+    "Maximum recursion depth exceeded in Python value conversion";
+
+fn check_conversion_depth(depth: usize, message: &'static str) -> PyResult<()> {
+    if depth >= MAX_CONVERSION_DEPTH {
+        Err(PyRecursionError::new_err(message))
+    } else {
+        Ok(())
+    }
+}
+
+struct InterpreterState {
+    interp: *mut PerlInterpreterC,
+    owner: Option<ThreadId>,
+    depth: usize,
+}
+
+struct InterpreterLock {
+    state: Mutex<InterpreterState>,
+    available: Condvar,
+}
+
+impl InterpreterLock {
+    fn new(interp: *mut PerlInterpreterC) -> Self {
+        Self {
+            state: Mutex::new(InterpreterState {
+                interp,
+                owner: None,
+                depth: 0,
+            }),
+            available: Condvar::new(),
+        }
+    }
+
+    fn lock(&self) -> InterpreterGuard<'_> {
+        let current = thread::current().id();
+        let mut state = self.state.lock().unwrap();
+
+        loop {
+            match state.owner {
+                Some(owner) if owner == current => {
+                    state.depth += 1;
+                    return InterpreterGuard {
+                        lock: self,
+                        interp: state.interp,
+                    };
+                }
+                Some(_) => {
+                    state = self.available.wait(state).unwrap();
+                }
+                None => {
+                    state.owner = Some(current);
+                    state.depth = 1;
+                    return InterpreterGuard {
+                        lock: self,
+                        interp: state.interp,
+                    };
+                }
+            }
+        }
+    }
+}
+
+struct InterpreterGuard<'a> {
+    lock: &'a InterpreterLock,
+    interp: *mut PerlInterpreterC,
+}
+
+impl Deref for InterpreterGuard<'_> {
+    type Target = *mut PerlInterpreterC;
+
+    fn deref(&self) -> &Self::Target {
+        &self.interp
+    }
+}
+
+impl Drop for InterpreterGuard<'_> {
+    fn drop(&mut self) {
+        let mut state = self
+            .lock
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if thread::panicking() {
+            return;
+        }
+
+        state.depth -= 1;
+        if state.depth == 0 {
+            state.owner = None;
+            drop(state);
+            self.lock.available.notify_one();
+        }
+    }
+}
+
 /// Check the error pointer and return a PyErr if set.
 unsafe fn check_error(error: *mut c_char) -> PyResult<()> {
     if error.is_null() {
@@ -151,7 +253,10 @@ unsafe fn sv_to_py(
     py: Python<'_>,
     interp: *mut PerlInterpreterC,
     sv: *mut SV,
+    depth: usize,
 ) -> PyResult<Py<PyAny>> {
+    check_conversion_depth(depth, PERL_VALUE_RECURSION_ERROR)?;
+
     if sv.is_null() {
         return Ok(py.None());
     }
@@ -179,11 +284,11 @@ unsafe fn sv_to_py(
             let list = PyList::empty(py);
             for i in 0..count {
                 let elem = unsafe { perlthon_av_fetch(interp, sv, i) };
-                let py_elem = unsafe { sv_to_py(py, interp, elem) }?;
-                list.append(py_elem)?;
+                let py_elem = unsafe { sv_to_py(py, interp, elem, depth + 1) };
                 if !elem.is_null() {
                     unsafe { perlthon_sv_decref(interp, elem) };
                 }
+                list.append(py_elem?)?;
             }
             Ok(list.into_any().unbind())
         }
@@ -201,11 +306,11 @@ unsafe fn sv_to_py(
                 }
                 let key_bytes = unsafe { std::slice::from_raw_parts(key as *const u8, klen) };
                 let key_str = String::from_utf8_lossy(key_bytes);
-                let py_val = unsafe { sv_to_py(py, interp, val) }?;
-                dict.set_item(key_str.as_ref(), py_val)?;
+                let py_val = unsafe { sv_to_py(py, interp, val, depth + 1) };
                 if !val.is_null() {
                     unsafe { perlthon_sv_decref(interp, val) };
                 }
+                dict.set_item(key_str.as_ref(), py_val?)?;
             }
             Ok(dict.into_any().unbind())
         }
@@ -224,7 +329,10 @@ unsafe fn py_to_sv(
     _py: Python<'_>,
     interp: *mut PerlInterpreterC,
     obj: &Bound<'_, pyo3::PyAny>,
+    depth: usize,
 ) -> PyResult<*mut SV> {
+    check_conversion_depth(depth, PYTHON_VALUE_RECURSION_ERROR)?;
+
     if obj.is_none() {
         return Ok(unsafe { perlthon_new_sv_undef(interp) });
     }
@@ -245,7 +353,7 @@ unsafe fn py_to_sv(
     if let Ok(list) = obj.cast::<PyList>() {
         let av = unsafe { perlthon_new_av(interp) };
         for item in list.iter() {
-            let value = match unsafe { py_to_sv(_py, interp, &item) } {
+            let value = match unsafe { py_to_sv(_py, interp, &item, depth + 1) } {
                 Ok(value) => value,
                 Err(err) => {
                     unsafe { decref_sv(interp, av) };
@@ -259,7 +367,7 @@ unsafe fn py_to_sv(
     if let Ok(tuple) = obj.cast::<PyTuple>() {
         let av = unsafe { perlthon_new_av(interp) };
         for item in tuple.iter() {
-            let value = match unsafe { py_to_sv(_py, interp, &item) } {
+            let value = match unsafe { py_to_sv(_py, interp, &item, depth + 1) } {
                 Ok(value) => value,
                 Err(err) => {
                     unsafe { decref_sv(interp, av) };
@@ -287,7 +395,7 @@ unsafe fn py_to_sv(
                     return Err(PyRuntimeError::new_err("Dict key contains null byte"));
                 }
             };
-            let sv_value = match unsafe { py_to_sv(_py, interp, &value) } {
+            let sv_value = match unsafe { py_to_sv(_py, interp, &value, depth + 1) } {
                 Ok(sv_value) => sv_value,
                 Err(err) => {
                     unsafe { decref_sv(interp, hv) };
@@ -342,7 +450,7 @@ fn args_to_sv(
 ) -> PyResult<Vec<*mut SV>> {
     let mut sv_args = Vec::with_capacity(args.len());
     for arg in args {
-        match unsafe { py_to_sv(py, interp, arg) } {
+        match unsafe { py_to_sv(py, interp, arg, 0) } {
             Ok(sv) => sv_args.push(sv),
             Err(err) => {
                 unsafe { free_sv_args(interp, &mut sv_args) };
@@ -418,14 +526,14 @@ unsafe extern "C" fn perlthon_dispatch_callback(
                 let values = unsafe { std::slice::from_raw_parts(argv, argc as usize) };
                 let mut converted = Vec::with_capacity(values.len());
                 for value in values {
-                    converted.push(unsafe { sv_to_py(py, interp, *value) }?);
+                    converted.push(unsafe { sv_to_py(py, interp, *value, 0) }?);
                 }
                 converted
             };
 
             let tuple = PyTuple::new(py, py_args)?;
             let result = callback.call1(py, tuple)?;
-            unsafe { py_to_sv(py, interp, result.bind(py)) }
+            unsafe { py_to_sv(py, interp, result.bind(py), 0) }
         })
     })();
 
@@ -466,11 +574,11 @@ mod _core {
 
     #[pyclass]
     struct PerlInterpreter {
-        inner: Mutex<*mut PerlInterpreterC>,
+        inner: InterpreterLock,
     }
 
-    // Safety: The Mutex ensures only one thread accesses the interpreter at a time.
-    // Perl is not thread-safe, but we serialize access.
+    // Safety: The custom lock ensures only one thread accesses the interpreter at a
+    // time while still allowing callbacks to re-enter from the owning thread.
     unsafe impl Send for PerlInterpreter {}
     unsafe impl Sync for PerlInterpreter {}
 
@@ -480,9 +588,15 @@ mod _core {
         fn new() -> PyResult<Self> {
             let interp = unsafe { perlthon_alloc() };
             if interp.is_null() {
-                return Err(PyRuntimeError::new_err(
-                    "Failed to allocate Perl interpreter",
-                ));
+                let message = unsafe {
+                    let error = perlthon_last_bootstrap_error();
+                    if error.is_null() {
+                        "Failed to allocate Perl interpreter".to_string()
+                    } else {
+                        CStr::from_ptr(error).to_string_lossy().into_owned()
+                    }
+                };
+                return Err(PyRuntimeError::new_err(message));
             }
             let rc = unsafe { perlthon_init(interp) };
             if rc != 0 {
@@ -493,13 +607,13 @@ mod _core {
             }
             set_current_interpreter(interp);
             Ok(PerlInterpreter {
-                inner: Mutex::new(interp),
+                inner: InterpreterLock::new(interp),
             })
         }
 
         fn use_module(&self, module_name: &str) -> PyResult<()> {
             validate_perl_name(module_name, "module")?;
-            let interp = self.inner.lock().unwrap();
+            let interp = self.inner.lock();
             set_current_interpreter(*interp);
             let c_name = CString::new(module_name)
                 .map_err(|_| PyRuntimeError::new_err("Module name contains null byte"))?;
@@ -513,14 +627,14 @@ mod _core {
         }
 
         fn eval(&self, py: Python<'_>, code: &str) -> PyResult<Py<PyAny>> {
-            let interp = self.inner.lock().unwrap();
+            let interp = self.inner.lock();
             set_current_interpreter(*interp);
             let c_code = CString::new(code)
                 .map_err(|_| PyRuntimeError::new_err("Code contains null byte"))?;
             let mut error: *mut c_char = ptr::null_mut();
             let sv = unsafe { perlthon_eval(*interp, c_code.as_ptr(), &mut error) };
             unsafe { check_error(error) }?;
-            let result = unsafe { sv_to_py(py, *interp, sv) };
+            let result = unsafe { sv_to_py(py, *interp, sv, 0) };
             if !sv.is_null() {
                 unsafe { perlthon_sv_decref(*interp, sv) };
             }
@@ -534,7 +648,7 @@ mod _core {
             args: Vec<Bound<'_, pyo3::PyAny>>,
         ) -> PyResult<Py<PyAny>> {
             validate_perl_name(func_name, "function")?;
-            let interp = self.inner.lock().unwrap();
+            let interp = self.inner.lock();
             set_current_interpreter(*interp);
             let c_name = CString::new(func_name)
                 .map_err(|_| PyRuntimeError::new_err("Function name contains null byte"))?;
@@ -552,7 +666,7 @@ mod _core {
             };
             unsafe { free_sv_args(*interp, &mut sv_args) };
             unsafe { check_error(error) }?;
-            let result = unsafe { sv_to_py(py, *interp, sv) };
+            let result = unsafe { sv_to_py(py, *interp, sv, 0) };
             if !sv.is_null() {
                 unsafe { perlthon_sv_decref(*interp, sv) };
             }
@@ -568,7 +682,7 @@ mod _core {
         ) -> PyResult<Py<PyAny>> {
             validate_perl_name(module, "module")?;
             validate_perl_name(method, "function")?;
-            let interp = self.inner.lock().unwrap();
+            let interp = self.inner.lock();
             set_current_interpreter(*interp);
             let c_module = CString::new(module)
                 .map_err(|_| PyRuntimeError::new_err("Module name contains null byte"))?;
@@ -589,7 +703,7 @@ mod _core {
             };
             unsafe { free_sv_args(*interp, &mut sv_args) };
             unsafe { check_error(error) }?;
-            let result = unsafe { sv_to_py(py, *interp, sv) };
+            let result = unsafe { sv_to_py(py, *interp, sv, 0) };
             if !sv.is_null() {
                 unsafe { perlthon_sv_decref(*interp, sv) };
             }
@@ -597,7 +711,7 @@ mod _core {
         }
 
         fn register_callback(&self, name: &str, callable: Py<PyAny>) -> PyResult<()> {
-            let interp = self.inner.lock().unwrap();
+            let interp = self.inner.lock();
             set_current_interpreter(*interp);
             register_callback_impl(*interp, name, callable)
         }
@@ -605,7 +719,7 @@ mod _core {
 
     impl Drop for PerlInterpreter {
         fn drop(&mut self) {
-            let interp = self.inner.lock().unwrap();
+            let interp = self.inner.lock();
             if !(*interp).is_null() {
                 let interp_id = *interp as usize;
                 let mut registry = CALLBACK_REGISTRY.lock().unwrap();
