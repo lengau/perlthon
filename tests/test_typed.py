@@ -80,6 +80,62 @@ class TestTypedModule:
         assert module.print_("value") == ("Example::print", ("value",))
         assert getattr(module, "class") is module.class_
 
+    def test_keyword_alias_caches_callable_when_alias_accessed_first(
+        self, monkeypatch
+    ) -> None:
+        typed_module = importlib.import_module("perlthon.typed")
+
+        monkeypatch.setattr(
+            typed_module,
+            "_introspect_module",
+            lambda module_name: ["class"],
+        )
+        monkeypatch.setattr(
+            typed_module,
+            "perl_call",
+            lambda target, *args: (target, args),
+        )
+
+        module = typed_module.TypedModule("Example")
+
+        alias_first = module.class_
+        alias_name = "class_"
+
+        assert alias_first is getattr(module, "class")
+        assert module.class_ is getattr(module, alias_name)
+
+    def test_keyword_alias_caches_callable_when_original_accessed_first(
+        self, monkeypatch
+    ) -> None:
+        typed_module = importlib.import_module("perlthon.typed")
+
+        monkeypatch.setattr(
+            typed_module,
+            "_introspect_module",
+            lambda module_name: ["class"],
+        )
+        monkeypatch.setattr(
+            typed_module,
+            "perl_call",
+            lambda target, *args: (target, args),
+        )
+
+        module = typed_module.TypedModule("Example")
+
+        original_first = getattr(module, "class")
+        alias_name = "class_"
+
+        assert original_first is module.class_
+        assert module.class_ is getattr(module, alias_name)
+
+    def test_build_name_map_handles_multi_suffix_collisions(self) -> None:
+        typed_module = importlib.import_module("perlthon.typed")
+
+        assert typed_module.build_name_map(["sum_", "sum"]) == {
+            "sum_": "sum",
+            "sum__": "sum_",
+        }
+
     def test_collision_safe_aliases_match_stub_resolution(self, monkeypatch) -> None:
         typed_module = importlib.import_module("perlthon.typed")
 
@@ -225,7 +281,7 @@ class TestGenerateStubs:
         monkeypatch.setattr(
             stubs,
             "_introspect_module",
-            lambda module_name: ["sum", "sum_"],
+            lambda module_name: ["sum_", "sum"],
         )
         monkeypatch.setattr(stubs, "_pod_docs", lambda module_name, functions: {})
 

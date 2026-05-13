@@ -66,17 +66,15 @@ def _python_safe_name(name: str) -> str:
     return f"{name}_" if _needs_python_safe_name(name) else name
 
 
-def _python_name_map(functions: list[str]) -> dict[str, str]:
+def build_name_map(perl_functions: list[str]) -> dict[str, str]:
     used_names = set(_RESERVED_TYPED_METHOD_NAMES)
     name_map: dict[str, str] = {}
-    for function_name in functions:
-        if not function_name.isidentifier():
-            continue
-        python_name = _python_safe_name(function_name)
+    for perl_name in sorted(set(perl_functions)):
+        python_name = _python_safe_name(perl_name)
         while python_name in used_names:
             python_name += "_"
         used_names.add(python_name)
-        name_map[python_name] = function_name
+        name_map[python_name] = perl_name
     return name_map
 
 
@@ -126,7 +124,13 @@ class TypedModule:
         self._module_name = module_name
         self._functions = _introspect_module(module_name)
         self._function_set = set(self._functions)
-        self._name_map = _python_name_map(self._functions)
+        self._name_map = build_name_map(self._functions)
+        self._aliases_by_function: dict[str, set[str]] = {}
+        for python_name, perl_name in self._name_map.items():
+            self._aliases_by_function.setdefault(perl_name, set()).add(python_name)
+        for perl_name in self._functions:
+            if perl_name not in self._name_map:
+                self._aliases_by_function.setdefault(perl_name, set()).add(perl_name)
 
     def __repr__(self) -> str:
         count = len(self._functions)
@@ -143,17 +147,25 @@ class TypedModule:
             msg = f"Module {self._module_name} has no function {name!r}"
             raise AttributeError(msg)
 
-        def caller(*args: object) -> PerlValue:
-            return perl_call(f"{self._module_name}::{resolved_name}", *args)
+        alias_names = self._aliases_by_function.get(resolved_name, {name})
+        caller = next(
+            (
+                self.__dict__[alias_name]
+                for alias_name in alias_names
+                if alias_name in self.__dict__
+            ),
+            None,
+        )
+        if caller is None:
 
-        caller.__name__ = name
-        caller.__qualname__ = f"{self._module_name}.{name}"
-        self.__dict__[name] = caller
-        if (
-            resolved_name != name
-            and self._name_map.get(resolved_name, resolved_name) == resolved_name
-        ):
-            self.__dict__.setdefault(resolved_name, caller)
+            def caller(*args: object) -> PerlValue:
+                return perl_call(f"{self._module_name}::{resolved_name}", *args)
+
+            caller.__name__ = name
+            caller.__qualname__ = f"{self._module_name}.{name}"
+
+        for alias_name in alias_names | {name}:
+            self.__dict__[alias_name] = caller
         return caller
 
     def available_functions(self) -> list[str]:
