@@ -56,8 +56,11 @@ def _introspect_module(module_name: str) -> list[str]:
             my @functions = (
                 @{{"${{module}}::EXPORT"}},
                 @{{"${{module}}::EXPORT_OK"}},
-                keys %{{"${{module}}::"}},
             );
+            for my $name (keys %{{"${{module}}::"}}) {{
+                next unless defined &{{"${{module}}::${{name}}"}};
+                push @functions, $name;
+            }}
             my %seen;
             [ sort grep {{ !$seen{{$_}}++ }} @functions ];
         }}
@@ -87,15 +90,18 @@ class TypedModule:
         return sorted(set(super().__dir__()) | set(self._functions))
 
     def __getattr__(self, name: str) -> Any:
+        if name.startswith("_"):
+            raise AttributeError(name)
         if name not in self._functions:
-            msg = f"{self._module_name!r} has no discovered function {name!r}"
+            msg = f"Module {self._module_name} has no function {name!r}"
             raise AttributeError(msg)
 
         def caller(*args: object) -> PerlValue:
             return perl_call(f"{self._module_name}::{name}", *args)
 
         caller.__name__ = name
-        caller.__qualname__ = f"{self.__class__.__name__}.{name}"
+        caller.__qualname__ = f"{self._module_name}.{name}"
+        self.__dict__[name] = caller
         return caller
 
     def available_functions(self) -> list[str]:

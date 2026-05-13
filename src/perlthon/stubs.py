@@ -4,6 +4,7 @@ import re
 import subprocess
 from pathlib import Path
 
+from ._perl import _find_perl
 from .typed import _introspect_module
 
 _POD_MARKUP_RE = re.compile(r"[A-Z]<([^>]+)>")
@@ -37,7 +38,7 @@ def _module_file(module_name: str) -> Path | None:
         "print $INC{$file} // q{};"
     )
     result = subprocess.run(
-        ["perl", "-e", script, module_name],
+        [_find_perl(), "-e", script, module_name],
         capture_output=True,
         text=True,
         check=False,
@@ -110,9 +111,15 @@ def _pod_docs(module_name: str, functions: list[str]) -> dict[str, str]:
     return docs
 
 
-def _docstring_block(text: str) -> str:
-    escaped = text.replace('"""', '"""')
-    return f'        """{escaped}"""\n'
+def _docstring_block(text: str, indent: str = "    ") -> str:
+    escaped = text.replace("\\", "\\\\").replace('"""', '\\"\\"\\"')
+    escaped = escaped.rstrip('"')
+    lines = escaped.split("\n")
+    result = f'{indent}"""\n'
+    for line in lines:
+        result += f"{indent}{line}\n" if line.strip() else f"{indent}\n"
+    result += f'{indent}"""\n'
+    return result
 
 
 def _render_stub(module_name: str, functions: list[str]) -> str:
@@ -134,7 +141,7 @@ def _render_stub(module_name: str, functions: list[str]) -> str:
         lines.append("\n")
         lines.append(f"    def {function_name}(self, *args: Any) -> Any:\n")
         if doc := docs.get(function_name):
-            lines.append(_docstring_block(doc))
+            lines.append(_docstring_block(doc, indent="        "))
         lines.append("        ...\n")
     return "".join(lines)
 
