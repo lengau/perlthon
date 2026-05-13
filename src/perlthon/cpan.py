@@ -80,6 +80,11 @@ def _normalize_mirror(mirror: str | None) -> str:
     parsed = urlparse(mirror_url)
     if parsed.scheme != "https" or not parsed.netloc:
         raise ValueError("mirror must be an HTTPS URL")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError(
+            "Mirror URLs must not contain credentials; "
+            "use external auth mechanisms instead."
+        )
     if parsed.query or parsed.fragment:
         raise ValueError("mirror must not include query parameters or fragments")
     return mirror_url

@@ -260,6 +260,56 @@ def test_install_rejects_insecure_mirror(
         cpan.install("Try::Tiny", mirror=mirror)
 
 
+@pytest.mark.parametrize(
+    "mirror",
+    [
+        "https://user@cpan.example.test/root",
+        "https://user:pass@cpan.example.test/root",
+    ],
+)
+def test_normalize_mirror_rejects_credentials(mirror: str) -> None:
+    repo = Path(__file__).resolve().parents[1]
+    pythonpath = os.pathsep.join(
+        entry
+        for entry in [str(repo / "src"), os.environ.get("PYTHONPATH", "")]
+        if entry
+    )
+    code = textwrap.dedent(
+        f"""
+        import sys
+        import types
+
+        core = types.ModuleType("perlthon._core")
+        core.PerlInterpreter = type("PerlInterpreter", (), {{}})
+        core.hello_from_bin = lambda: "hello"
+        sys.modules["perlthon._core"] = core
+
+        from perlthon import cpan
+
+        try:
+            cpan._normalize_mirror({mirror!r})
+        except ValueError as exc:
+            assert str(exc) == (
+                "Mirror URLs must not contain credentials; "
+                "use external auth mechanisms instead."
+            )
+        else:
+            raise AssertionError("expected ValueError")
+        """
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        check=False,
+        cwd=repo,
+        env={**os.environ, "PYTHONPATH": pythonpath},
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
 @pytest.mark.slow
 def test_install_installs_module_into_custom_lib() -> None:
     lib_dir = Path.cwd() / ".pytest-perl5lib"
