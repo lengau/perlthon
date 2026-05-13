@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
+import threading
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from perlthon._core import PerlInterpreter as _PerlInterpreter
@@ -10,19 +14,41 @@ from perlthon._core import hello_from_bin
 # Type alias for values returned from Perl
 type PerlValue = str | int | float | bool | list[Any] | dict[str, Any] | None
 
+__all__ = [
+    "PerlCallable",
+    "PerlModule",
+    "PerlValue",
+    "async_call",
+    "async_eval",
+    "async_use",
+    "call",
+    "eval",
+    "hello",
+    "use",
+]
+
+_interpreter: _PerlInterpreter | None = None
+_interpreter_lock = threading.RLock()
+_executor = ThreadPoolExecutor(thread_name_prefix="perlthon")
+
 
 def hello() -> str:
     return hello_from_bin()
 
 
-_interpreter: _PerlInterpreter | None = None
+async def _run_async(
+    func: Callable[..., PerlValue | PerlModule], *args: object
+) -> PerlValue | PerlModule:
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_executor, func, *args)
 
 
 def _get_interpreter() -> _PerlInterpreter:
     global _interpreter
-    if _interpreter is None:
-        _interpreter = _PerlInterpreter()
-    return _interpreter
+    with _interpreter_lock:
+        if _interpreter is None:
+            _interpreter = _PerlInterpreter()
+        return _interpreter
 
 
 class PerlModule:
@@ -40,7 +66,12 @@ class PerlModule:
 
     def call(self, method: str, *args: object) -> PerlValue:
         """Call a method on this Perl module (OO-style, passes module as invocant)."""
-        return self._interp.call_method(self._name, method, list(args))
+        with _interpreter_lock:
+            return self._interp.call_method(self._name, method, list(args))
+
+    async def acall(self, method: str, *args: object) -> PerlValue:
+        """Asynchronously call a method on this Perl module."""
+        return await _run_async(self.call, method, *args)
 
 
 class PerlCallable:
@@ -61,7 +92,8 @@ class PerlCallable:
 
     def __call__(self, *args: object) -> PerlValue:
         fqn = f"{self._module}::{self._method}"
-        return self._interp.call_function(fqn, list(args))
+        with _interpreter_lock:
+            return self._interp.call_function(fqn, list(args))
 
 
 def use(module_name: str) -> PerlModule:
@@ -73,9 +105,26 @@ def use(module_name: str) -> PerlModule:
     Returns:
         A :class:`PerlModule` proxy that supports method calls.
     """
-    interp = _get_interpreter()
-    interp.use_module(module_name)
-    return PerlModule(module_name)
+    with _interpreter_lock:
+        interp = _get_interpreter()
+        interp.use_module(module_name)
+        return PerlModule(module_name)
+
+
+async def async_eval(code: str) -> PerlValue:
+    """Evaluate Perl code without blocking the current event loop."""
+    return await _run_async(eval, code)
+
+
+async def async_call(function_name: str, *args: object) -> PerlValue:
+    """Call a Perl function without blocking the current event loop."""
+    return await _run_async(call, function_name, *args)
+
+
+async def async_use(module_name: str) -> PerlModule:
+    """Load a Perl module without blocking the current event loop."""
+    result = await _run_async(use, module_name)
+    return result
 
 
 def call(function_name: str, *args: object) -> PerlValue:
@@ -88,8 +137,9 @@ def call(function_name: str, *args: object) -> PerlValue:
     Returns:
         The return value from Perl, converted to a Python type.
     """
-    interp = _get_interpreter()
-    return interp.call_function(function_name, list(args))
+    with _interpreter_lock:
+        interp = _get_interpreter()
+        return interp.call_function(function_name, list(args))
 
 
 def eval(code: str) -> PerlValue:
@@ -101,5 +151,6 @@ def eval(code: str) -> PerlValue:
     Returns:
         The result of the evaluation, converted to a Python type.
     """
-    interp = _get_interpreter()
-    return interp.eval(code)
+    with _interpreter_lock:
+        interp = _get_interpreter()
+        return interp.eval(code)
