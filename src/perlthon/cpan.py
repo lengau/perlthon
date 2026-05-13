@@ -9,14 +9,17 @@ import sys
 from pathlib import Path
 
 _MODULE_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$")
-_DEFAULT_HOME_LIB = Path.home() / ".local" / "share" / "perlthon" / "lib"
+
+
+def _default_home_lib() -> Path:
+    return Path.home() / ".local" / "share" / "perlthon" / "lib"
 
 
 def get_lib_dir() -> Path:
     """Return the default local::lib root used for CPAN installs."""
     if sys.prefix != sys.base_prefix:
         return Path(sys.prefix) / "perl5lib"
-    return _DEFAULT_HOME_LIB
+    return _default_home_lib()
 
 
 def _normalize_lib_dir(lib: str | None) -> Path:
@@ -122,14 +125,16 @@ def is_installed(module: str) -> bool:
     if not _MODULE_NAME_RE.fullmatch(module):
         return False
 
-    _apply_local_lib_env(os.environ, get_lib_dir())
-
-    from perlthon import eval as perl_eval
-
-    try:
-        return bool(perl_eval(f"eval {{ require {module}; 1 }} ? 1 : 0"))
-    except RuntimeError:
+    result = subprocess.run(
+        [_find_perl(), "-e", f"print(eval {{ require {module}; 1 }} ? 1 : 0)"],
+        capture_output=True,
+        check=False,
+        env=_perl_env(get_lib_dir()),
+        text=True,
+    )
+    if result.returncode != 0:
         return False
+    return result.stdout.strip() == "1"
 
 
 def installed() -> list[str]:
@@ -171,7 +176,5 @@ def installed() -> list[str]:
     stdout = result.stdout.strip()
     return stdout.splitlines() if stdout else []
 
-
-_apply_local_lib_env(os.environ, get_lib_dir())
 
 __all__ = ["get_lib_dir", "install", "installed", "is_installed"]

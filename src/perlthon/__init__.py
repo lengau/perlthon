@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
+from importlib import import_module
 from typing import Any
 
 from perlthon._core import PerlInterpreter as _PerlInterpreter
 from perlthon._core import hello_from_bin
-
-from . import cpan as cpan
 
 # Type alias for values returned from Perl
 type PerlValue = str | int | float | bool | list[Any] | dict[str, Any] | None
@@ -105,3 +104,12 @@ def eval(code: str) -> PerlValue:
     """
     interp = _get_interpreter()
     return interp.eval(code)
+
+
+def __getattr__(name: str) -> object:
+    if name == "cpan":
+        module = import_module(".cpan", __name__)
+        globals()["cpan"] = module
+        return module
+    msg = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(msg)
