@@ -37,6 +37,21 @@ const char *perlthon_last_bootstrap_error(void) {
     return perlthon_bootstrap_error[0] ? perlthon_bootstrap_error : NULL;
 }
 
+static int perlthon_handle_exports_perl_symbols(void *handle) {
+    dlerror();
+    void *symbol = dlsym(handle, "Perl_sv_2pv_flags");
+    if (symbol != NULL) {
+        return 1;
+    }
+
+    const char *detail = dlerror();
+    perlthon_set_bootstrap_error(
+        "NULL",
+        detail ? detail : "main program handle does not export Perl_sv_2pv_flags"
+    );
+    return 0;
+}
+
 static int perlthon_export_libperl_symbols(void) {
     const char *candidates[] = {
         PERLTHON_LIBPERL_PATH,
@@ -58,7 +73,10 @@ static int perlthon_export_libperl_symbols(void) {
         dlerror();
         void *handle = dlopen(candidate, flags);
         if (handle != NULL) {
-            return 1;
+            if (candidate != NULL || perlthon_handle_exports_perl_symbols(handle)) {
+                return 1;
+            }
+            continue;
         }
 
         const char *detail = dlerror();
