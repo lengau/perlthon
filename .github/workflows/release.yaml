@@ -6,7 +6,7 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   sdist:
@@ -84,6 +84,11 @@ jobs:
             apt-get update && apt-get install -y libperl-dev libcrypt-dev
         env:
           RUSTFLAGS: "-C target-cpu=generic-rv64"
+      - name: Rename wheel to indicate RVA20 profile
+        run: |
+          for f in dist/*.whl; do
+            mv "$f" "${f/linux_riscv64/linux_riscv64_rva20}"
+          done
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: wheel-linux-riscv64-rva20
@@ -108,12 +113,19 @@ jobs:
             apt-get update && apt-get install -y libperl-dev libcrypt-dev
         env:
           RUSTFLAGS: "-C target-cpu=generic-rv64 -C target-feature=+v,+zba,+zbb,+zbs,+zicboz,+zicond,+zimop,+zfhmin,+zvfhmin"
+      - name: Rename wheel to indicate RVA23 profile
+        run: |
+          for f in dist/*.whl; do
+            mv "$f" "${f/linux_riscv64/linux_riscv64_rva23}"
+          done
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: wheel-linux-riscv64-rva23
           path: dist/*.whl
 
   release:
+    permissions:
+      contents: write
     needs:
       - sdist
       - wheel-linux-amd64
