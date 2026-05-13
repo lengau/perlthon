@@ -89,37 +89,12 @@ jobs:
           name: wheel-linux-riscv64-rva20
           path: dist/*.whl
 
-  wheel-linux-riscv64-rva23:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Use upstream crates (not vendored)
-        run: rm -f .cargo/config.toml
-      - uses: docker/setup-qemu-action@v3
-        with:
-          platforms: riscv64
-      - uses: PyO3/maturin-action@v1
-        with:
-          target: riscv64gc-unknown-linux-gnu
-          manylinux: auto
-          args: --release --out dist
-          before-script-linux: |
-            rm -f .cargo/config.toml
-            apt-get update && apt-get install -y libperl-dev libcrypt-dev
-        env:
-          RUSTFLAGS: "-C target-cpu=generic-rv64 -C target-feature=+v,+zba,+zbb,+zbs,+zicboz,+zicond,+zimop,+zfhmin,+zvfhmin"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: wheel-linux-riscv64-rva23
-          path: dist/*.whl
-
   release:
     needs:
       - sdist
       - wheel-linux-amd64
       - wheel-linux-arm64
       - wheel-linux-riscv64-rva20
-      - wheel-linux-riscv64-rva23
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
