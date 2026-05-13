@@ -11,6 +11,10 @@ release = "0.1.0"
 # Sidebar documentation title
 html_title = project + " documentation"
 
+# Logo
+html_logo = "_static/logo.png"
+html_favicon = "_static/logo.png"
+
 # Documentation website URL
 ogp_site_url = "https://lengau.github.io/perlthon/"
 ogp_site_name = project
