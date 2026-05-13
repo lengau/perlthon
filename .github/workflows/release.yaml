@@ -15,11 +15,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Verify commit signature
+      - name: Verify tag signature
         run: |
-          TAG_COMMIT=$(git rev-list -n 1 "${{ github.ref_name }}")
-          if ! git verify-commit "$TAG_COMMIT" 2>/dev/null; then
-            echo "::error::Release commit is not signed"
+          if ! git verify-tag "${{ github.ref_name }}" 2>/dev/null; then
+            echo "::error::Release tag is not signed"
             exit 1
           fi
 
