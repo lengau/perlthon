@@ -6,7 +6,7 @@ import os
 project = "Perlthon"
 author = "Alex M. Lowe"
 copyright = f"{datetime.date.today().year}, {author}"
-release = "0.1.1"
+release = "0.1.1.1"
 
 # Sidebar documentation title
 html_title = project + " documentation"
