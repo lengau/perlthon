@@ -47,6 +47,16 @@ def test_install_raises_helpful_error_when_cpanm_missing(
         cpan.install("Text::CSV")
 
 
+def test_apply_local_lib_env_quotes_paths_with_spaces() -> None:
+    env: dict[str, str] = {}
+    lib_dir = Path.cwd() / "dir with spaces" / "perl5"
+
+    cpan._apply_local_lib_env(env, lib_dir)
+
+    assert env["PERL_MB_OPT"] == f"--install_base '{lib_dir}'"
+    assert env["PERL_MM_OPT"] == f"INSTALL_BASE='{lib_dir}'"
+
+
 @pytest.mark.slow
 def test_install_installs_module_into_custom_lib() -> None:
     lib_dir = Path.cwd() / ".pytest-perl5lib"

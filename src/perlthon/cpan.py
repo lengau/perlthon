@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -45,8 +46,8 @@ def _apply_local_lib_env(env: dict[str, str], lib_dir: Path) -> None:
     env["PERL_LOCAL_LIB_ROOT"] = os.pathsep.join(
         [lib_root, *[entry for entry in existing_roots if entry != lib_root]]
     )
-    env["PERL_MB_OPT"] = f"--install_base {lib_dir}"
-    env["PERL_MM_OPT"] = f"INSTALL_BASE={lib_dir}"
+    env["PERL_MB_OPT"] = f"--install_base {shlex.quote(str(lib_dir))}"
+    env["PERL_MM_OPT"] = f"INSTALL_BASE={shlex.quote(str(lib_dir))}"
 
 
 def _perl_env(lib_dir: Path) -> dict[str, str]:
