@@ -3,7 +3,7 @@ use std::ffi::{CStr, CString, c_char, c_double, c_int, c_longlong};
 use std::ptr;
 use std::sync::{LazyLock, Mutex};
 
-use pyo3::exceptions::PyRuntimeError;
+use pyo3::exceptions::{PyRecursionError, PyRuntimeError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};
 
@@ -112,7 +112,7 @@ const PYTHON_VALUE_RECURSION_ERROR: &str =
 
 fn check_conversion_depth(depth: usize, message: &'static str) -> PyResult<()> {
     if depth > MAX_CONVERSION_DEPTH {
-        Err(PyRuntimeError::new_err(message))
+        Err(PyRecursionError::new_err(message))
     } else {
         Ok(())
     }
@@ -167,11 +167,11 @@ unsafe fn sv_to_py(
             let list = PyList::empty(py);
             for i in 0..count {
                 let elem = unsafe { perlthon_av_fetch(interp, sv, i) };
-                let py_elem = unsafe { sv_to_py(py, interp, elem, depth + 1) }?;
-                list.append(py_elem)?;
+                let py_elem = unsafe { sv_to_py(py, interp, elem, depth + 1) };
                 if !elem.is_null() {
                     unsafe { perlthon_sv_decref(interp, elem) };
                 }
+                list.append(py_elem?)?;
             }
             Ok(list.into_any().unbind())
         }
@@ -189,11 +189,11 @@ unsafe fn sv_to_py(
                 }
                 let key_bytes = unsafe { std::slice::from_raw_parts(key as *const u8, klen) };
                 let key_str = String::from_utf8_lossy(key_bytes);
-                let py_val = unsafe { sv_to_py(py, interp, val, depth + 1) }?;
-                dict.set_item(key_str.as_ref(), py_val)?;
+                let py_val = unsafe { sv_to_py(py, interp, val, depth + 1) };
                 if !val.is_null() {
                     unsafe { perlthon_sv_decref(interp, val) };
                 }
+                dict.set_item(key_str.as_ref(), py_val?)?;
             }
             Ok(dict.into_any().unbind())
         }
