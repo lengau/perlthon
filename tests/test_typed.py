@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -99,6 +101,36 @@ class TestGenerateStubs:
 
         assert stubs._module_file("POSIX") is None
         assert captured["args"][0] == "custom-perl"
+
+    def test_module_file_rejects_invalid_module_names(self, monkeypatch) -> None:
+        stubs = importlib.import_module("perlthon.stubs")
+
+        def fail_run(*args, **kwargs):
+            raise AssertionError("subprocess.run should not be called")
+
+        monkeypatch.setattr(stubs.subprocess, "run", fail_run)
+
+        with pytest.raises(ValueError, match="Invalid Perl module name"):
+            stubs._module_file("Foo; system('rm -rf /')")
+
+    def test_importing_perlthon_does_not_eagerly_import_cpan(self) -> None:
+        code = (
+            "import os, sys\n"
+            "before = os.environ.get('PERL5LIB')\n"
+            "import perlthon\n"
+            "after = os.environ.get('PERL5LIB')\n"
+            "assert before == after\n"
+            "assert 'perlthon.cpan' not in sys.modules\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            check=False,
+            cwd=Path(__file__).resolve().parents[1],
+            text=True,
+        )
+
+        assert result.returncode == 0, result.stderr
 
     def test_generate_stubs_creates_pyi_files(self, tmp_path: Path) -> None:
         perlthon.generate_stubs(["POSIX", "List::Util"], output_dir=str(tmp_path))
