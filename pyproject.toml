@@ -1,6 +1,6 @@
 [project]
 name = "perlthon"
-version = "0.1.0"
+version = "0.1.1"
 description = "Natively import and run Perl modules from Python"
 readme = "README.md"
 authors = [
