@@ -165,6 +165,101 @@ def test_apply_local_lib_env_quotes_paths_with_spaces() -> None:
     assert env["PERL_MM_OPT"] == f"INSTALL_BASE='{lib_dir}'"
 
 
+def test_install_uses_trusted_https_mirror_and_sanitizes_cpanm_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cpan._cpanm_supports_verify.cache_clear()
+    calls: list[tuple[list[str], dict[str, str] | None]] = []
+    monkeypatch.setattr(
+        shutil, "which", lambda name: "/fake/cpanm" if name == "cpanm" else None
+    )
+    monkeypatch.setattr(cpan, "_find_perl", lambda: "/usr/bin/perl")
+    monkeypatch.setattr(cpan, "_reset_interpreter", lambda: None)
+    monkeypatch.setenv("PERL_CPANM_OPT", "--from http://evil.invalid")
+    monkeypatch.setenv("PERL_CPANM_HOME", "/unsafe/home")
+
+    def fake_run(
+        args: list[str],
+        capture_output: bool,
+        check: bool,
+        env: dict[str, str] | None = None,
+        text: bool = True,
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append((args, env))
+        if args == ["/usr/bin/perl", "/fake/cpanm", "--help"]:
+            return subprocess.CompletedProcess(args, 0, stdout="cpanm help", stderr="")
+        return subprocess.CompletedProcess(args, 0, stdout="ok", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    cpan.install("Try::Tiny")
+
+    install_args, install_env = calls[-1]
+    assert install_args == [
+        "/usr/bin/perl",
+        "/fake/cpanm",
+        "--from",
+        "https://cpan.metacpan.org",
+        "--mirror-only",
+        "-L",
+        str(cpan.get_lib_dir()),
+        "Try::Tiny",
+    ]
+    assert install_env is not None
+    assert "PERL_CPANM_OPT" not in install_env
+    assert "PERL_CPANM_HOME" not in install_env
+
+
+def test_install_accepts_https_mirror_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    cpan._cpanm_supports_verify.cache_clear()
+    commands: list[list[str]] = []
+    monkeypatch.setattr(
+        shutil, "which", lambda name: "/fake/cpanm" if name == "cpanm" else None
+    )
+    monkeypatch.setattr(cpan, "_find_perl", lambda: "/usr/bin/perl")
+    monkeypatch.setattr(cpan, "_reset_interpreter", lambda: None)
+
+    def fake_run(
+        args: list[str],
+        capture_output: bool,
+        check: bool,
+        env: dict[str, str] | None = None,
+        text: bool = True,
+    ) -> subprocess.CompletedProcess[str]:
+        commands.append(args)
+        return subprocess.CompletedProcess(
+            args, 0, stdout="--verify available", stderr=""
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    cpan.install("Try::Tiny", mirror="https://cpan.example.test/root")
+
+    assert commands[-1] == [
+        "/usr/bin/perl",
+        "/fake/cpanm",
+        "--from",
+        "https://cpan.example.test/root",
+        "--mirror-only",
+        "--verify",
+        "-L",
+        str(cpan.get_lib_dir()),
+        "Try::Tiny",
+    ]
+
+
+@pytest.mark.parametrize("mirror", ["http://cpan.example.test", "cpan.example.test"])
+def test_install_rejects_insecure_mirror(
+    monkeypatch: pytest.MonkeyPatch, mirror: str
+) -> None:
+    monkeypatch.setattr(
+        shutil, "which", lambda name: "/fake/cpanm" if name == "cpanm" else None
+    )
+
+    with pytest.raises(ValueError, match="HTTPS URL"):
+        cpan.install("Try::Tiny", mirror=mirror)
+
+
 @pytest.mark.slow
 def test_install_installs_module_into_custom_lib() -> None:
     lib_dir = Path.cwd() / ".pytest-perl5lib"
