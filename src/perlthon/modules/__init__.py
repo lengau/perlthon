@@ -2,7 +2,7 @@
 
 Mapping rules:
 - ``::`` in Perl becomes ``.`` in Python (attribute access)
-- ``__`` (double underscore) in Python becomes ``.`` in Perl (for rare dotted names)
+- each Python attribute segment must still be a valid Perl identifier
 
 Examples::
 
@@ -36,9 +36,7 @@ class _PerlNamespace:
     def __getattr__(self, name: str) -> _PerlNamespace:
         if name.startswith("_"):
             raise AttributeError(name)
-        # Double underscore maps to dot in Perl (for rare dotted names)
-        perl_segment = name.replace("__", ".")
-        return _PerlNamespace([*self._parts, perl_segment])
+        return _PerlNamespace([*self._parts, name])
 
     def __call__(self, *args: Any) -> Any:
         """Call the Perl function.
@@ -70,6 +68,4 @@ def __getattr__(name: str) -> _PerlNamespace:
     """Module-level attribute access creates a namespace proxy."""
     if name.startswith("_"):
         raise AttributeError(name)
-    # Double underscore maps to dot in Perl (for rare dotted names)
-    perl_segment = name.replace("__", ".")
-    return _PerlNamespace([perl_segment])
+    return _PerlNamespace([name])

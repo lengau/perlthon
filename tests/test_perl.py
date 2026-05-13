@@ -1,6 +1,9 @@
 """Tests for the Perl integration API."""
 
+import pytest
+
 import perlthon
+from perlthon._core import PerlInterpreter
 
 
 class TestEval:
@@ -58,3 +61,59 @@ class TestPerlModule:
     def test_module_repr(self):
         posix = perlthon.use("POSIX")
         assert "POSIX" in repr(posix)
+
+
+class TestNameValidation:
+    @pytest.mark.parametrize(
+        "module_name",
+        [
+            "Bad Module",
+            "Foo; system('echo injected')",
+            "strict'; print qq(INJECTED\\n); 1; }; #",
+        ],
+    )
+    def test_use_validates_module_names(self, module_name: str) -> None:
+        with pytest.raises(ValueError, match="Invalid Perl module name"):
+            perlthon.use(module_name)
+
+    @pytest.mark.parametrize(
+        "function_name",
+        [
+            "POSIX::floor; system('echo injected')",
+            "POSIX::floor # comment",
+            "POSIX::floor\nprint qq(INJECTED)",
+        ],
+    )
+    def test_call_validates_function_names(self, function_name: str) -> None:
+        with pytest.raises(ValueError, match="Invalid Perl function name"):
+            perlthon.call(function_name, 3.7)
+
+    def test_module_proxy_validates_method_names(self) -> None:
+        posix = perlthon.use("POSIX")
+
+        with pytest.raises(ValueError, match="Invalid Perl function name"):
+            posix.call("floor; print qq(INJECTED)", 3.7)
+
+    def test_module_attribute_validates_method_names(self) -> None:
+        posix = perlthon.use("POSIX")
+
+        with pytest.raises(ValueError, match="Invalid Perl function name"):
+            getattr(posix, "floor; print qq(INJECTED)")
+
+    def test_interpreter_validates_names(self) -> None:
+        interp = perlthon.interpreter()
+
+        with pytest.raises(ValueError, match="Invalid Perl module name"):
+            interp.use("Bad Module")
+        with pytest.raises(ValueError, match="Invalid Perl function name"):
+            interp.call("POSIX::floor; print qq(INJECTED)", 3.7)
+
+    def test_core_interpreter_validates_names(self) -> None:
+        interp = PerlInterpreter()
+
+        with pytest.raises(ValueError, match="Invalid Perl module name"):
+            interp.use_module("Bad Module")
+        with pytest.raises(ValueError, match="Invalid Perl function name"):
+            interp.call_function("POSIX::floor; print qq(INJECTED)", [3.7])
+        with pytest.raises(ValueError, match="Invalid Perl function name"):
+            interp.call_method("POSIX", "floor; print qq(INJECTED)", [3.7])

@@ -16,6 +16,7 @@ from . import (
 from . import (
     use as perl_use,
 )
+from ._validation import validate_module_name
 
 _EXCLUDED_SYMBOLS = frozenset(
     {
@@ -91,6 +92,7 @@ def _resolve_function_name(
 
 
 def _introspect_module(module_name: str) -> list[str]:
+    module_name = validate_module_name(module_name)
     perl_use(module_name)
     result = perl_eval(
         f"""
@@ -123,8 +125,8 @@ def _introspect_module(module_name: str) -> list[str]:
 
 class TypedModule:
     def __init__(self, module_name: str) -> None:
-        self._module_name = module_name
-        self._functions = _introspect_module(module_name)
+        self._module_name = validate_module_name(module_name)
+        self._functions = _introspect_module(self._module_name)
         self._function_set = set(self._functions)
         self._name_map = _python_name_map(self._functions)
 

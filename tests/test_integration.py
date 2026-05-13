@@ -528,7 +528,7 @@ class TestUseModule:
             perlthon.use("Completely::Fake::Module::XYZ")
 
     def test_use_invalid_name_raises(self):
-        with pytest.raises(RuntimeError):
+        with pytest.raises(ValueError, match="Invalid Perl module name"):
             perlthon.use("")
 
     def test_module_repr(self):

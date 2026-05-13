@@ -5,7 +5,7 @@ use std::ptr;
 use std::sync::{Condvar, LazyLock, Mutex};
 use std::thread::{self, ThreadId};
 
-use pyo3::exceptions::{PyRecursionError, PyRuntimeError};
+use pyo3::exceptions::{PyRecursionError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};
 
@@ -216,6 +216,35 @@ unsafe fn check_error(error: *mut c_char) -> PyResult<()> {
             .to_string();
         unsafe { perlthon_free_error(error) };
         Err(PyRuntimeError::new_err(msg))
+    }
+}
+
+fn is_valid_perl_name(name: &str) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+
+    for segment in name.split("::") {
+        let mut chars = segment.chars();
+        let Some(first) = chars.next() else {
+            return false;
+        };
+        if !(first == '_' || first.is_ascii_alphabetic()) {
+            return false;
+        }
+        if !chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric()) {
+            return false;
+        }
+    }
+
+    true
+}
+
+fn validate_perl_name(name: &str, kind: &str) -> PyResult<()> {
+    if is_valid_perl_name(name) {
+        Ok(())
+    } else {
+        Err(PyValueError::new_err(format!("Invalid Perl {kind} name: {name:?}")))
     }
 }
 
@@ -437,6 +466,7 @@ fn register_callback_impl(
     name: &str,
     callable: Py<PyAny>,
 ) -> PyResult<()> {
+    validate_perl_name(name, "function")?;
     let c_name = CString::new(name)
         .map_err(|_| PyRuntimeError::new_err("Callback name contains null byte"))?;
 
@@ -582,6 +612,7 @@ mod _core {
         }
 
         fn use_module(&self, module_name: &str) -> PyResult<()> {
+            validate_perl_name(module_name, "module")?;
             let interp = self.inner.lock();
             set_current_interpreter(*interp);
             let c_name = CString::new(module_name)
@@ -616,6 +647,7 @@ mod _core {
             func_name: &str,
             args: Vec<Bound<'_, pyo3::PyAny>>,
         ) -> PyResult<Py<PyAny>> {
+            validate_perl_name(func_name, "function")?;
             let interp = self.inner.lock();
             set_current_interpreter(*interp);
             let c_name = CString::new(func_name)
@@ -648,6 +680,8 @@ mod _core {
             method: &str,
             args: Vec<Bound<'_, pyo3::PyAny>>,
         ) -> PyResult<Py<PyAny>> {
+            validate_perl_name(module, "module")?;
+            validate_perl_name(method, "function")?;
             let interp = self.inner.lock();
             set_current_interpreter(*interp);
             let c_module = CString::new(module)
