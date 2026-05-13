@@ -22,6 +22,7 @@ struct SV {
 // FFI declarations for our C glue
 unsafe extern "C" {
     fn perlthon_alloc() -> *mut PerlInterpreterC;
+    fn perlthon_last_bootstrap_error() -> *const c_char;
     fn perlthon_init(interp: *mut PerlInterpreterC) -> c_int;
     fn perlthon_destroy(interp: *mut PerlInterpreterC);
 
@@ -557,9 +558,15 @@ mod _core {
         fn new() -> PyResult<Self> {
             let interp = unsafe { perlthon_alloc() };
             if interp.is_null() {
-                return Err(PyRuntimeError::new_err(
-                    "Failed to allocate Perl interpreter",
-                ));
+                let message = unsafe {
+                    let error = perlthon_last_bootstrap_error();
+                    if error.is_null() {
+                        "Failed to allocate Perl interpreter".to_string()
+                    } else {
+                        CStr::from_ptr(error).to_string_lossy().into_owned()
+                    }
+                };
+                return Err(PyRuntimeError::new_err(message));
             }
             let rc = unsafe { perlthon_init(interp) };
             if rc != 0 {
