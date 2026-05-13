@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import importlib
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 
 import perlthon
@@ -40,6 +45,11 @@ class TestTypedModule:
         assert posix.pow(2, 3) == 8.0
         assert list_util.sum(1, 2, 3) == 6
 
+    def test_getattr_caches_function_wrappers(self) -> None:
+        posix = perlthon.typed("POSIX")
+
+        assert posix.floor is posix.floor
+
     def test_dir_includes_discovered_functions(self) -> None:
         posix = perlthon.typed("POSIX")
 
@@ -62,13 +72,73 @@ class TestTypedModule:
 
 
 class TestGenerateStubs:
-    def test_generate_stubs_creates_pyi_files(self, tmp_path) -> None:
+    def test_docstring_block_escapes_triple_quotes(self) -> None:
+        stubs = importlib.import_module("perlthon.stubs")
+        block = stubs._docstring_block('Line with """ and trailing "', indent="    ")
+        compiled = "def f():\n" + block + "    ...\n"
+
+        assert '\\"\\"\\"' in block
+        compile(compiled, "<generated>", "exec")
+
+    def test_module_file_uses_discovered_perl(self, monkeypatch) -> None:
+        stubs = importlib.import_module("perlthon.stubs")
+        captured = {}
+
+        def fake_find_perl() -> str:
+            return "custom-perl"
+
+        class FakeCompletedProcess:
+            def __init__(self) -> None:
+                self.stdout = ""
+
+        def fake_run(args, **kwargs) -> FakeCompletedProcess:
+            del kwargs
+            captured["args"] = args
+            return FakeCompletedProcess()
+
+        monkeypatch.setattr(stubs, "_find_perl", fake_find_perl)
+        monkeypatch.setattr(stubs.subprocess, "run", fake_run)
+
+        assert stubs._module_file("POSIX") is None
+        assert captured["args"][0] == "custom-perl"
+
+    def test_module_file_rejects_invalid_module_names(self, monkeypatch) -> None:
+        stubs = importlib.import_module("perlthon.stubs")
+
+        def fail_run(*args, **kwargs):
+            raise AssertionError("subprocess.run should not be called")
+
+        monkeypatch.setattr(stubs.subprocess, "run", fail_run)
+
+        with pytest.raises(ValueError, match="Invalid Perl module name"):
+            stubs._module_file("Foo; system('rm -rf /')")
+
+    def test_importing_perlthon_does_not_eagerly_import_cpan(self) -> None:
+        code = (
+            "import os, sys\n"
+            "before = os.environ.get('PERL5LIB')\n"
+            "import perlthon\n"
+            "after = os.environ.get('PERL5LIB')\n"
+            "assert before == after\n"
+            "assert 'perlthon.cpan' not in sys.modules\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            check=False,
+            cwd=Path(__file__).resolve().parents[1],
+            text=True,
+        )
+
+        assert result.returncode == 0, result.stderr
+
+    def test_generate_stubs_creates_pyi_files(self, tmp_path: Path) -> None:
         perlthon.generate_stubs(["POSIX", "List::Util"], output_dir=str(tmp_path))
 
         assert (tmp_path / "POSIX.pyi").exists()
         assert (tmp_path / "List" / "Util.pyi").exists()
 
-    def test_generated_stub_contains_function_definitions(self, tmp_path) -> None:
+    def test_generated_stub_contains_function_definitions(self, tmp_path: Path) -> None:
         perlthon.generate_stubs(["POSIX", "List::Util"], output_dir=str(tmp_path))
 
         posix_stub = (tmp_path / "POSIX.pyi").read_text(encoding="utf-8")

@@ -8,6 +8,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from ._perl import _find_perl
+
 _MODULE_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$")
 
 
@@ -57,22 +59,6 @@ def _perl_env(lib_dir: Path) -> dict[str, str]:
     env = os.environ.copy()
     _apply_local_lib_env(env, lib_dir)
     return env
-
-
-def _find_perl() -> str:
-    configured = os.environ.get("PERLTHON_PERL")
-    if configured:
-        return configured
-
-    package_dir = Path(__file__).resolve().parent
-    bundled_perl = package_dir / "bin" / "perl"
-    if bundled_perl.exists():
-        return str(bundled_perl)
-
-    perl = shutil.which("perl")
-    if perl is None:
-        raise RuntimeError("Perl executable not found")
-    return perl
 
 
 def _validate_modules(modules: tuple[str, ...]) -> None:

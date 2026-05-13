@@ -137,7 +137,7 @@ class Interpreter:
 
     def __init__(self) -> None:
         self._interp: _PerlInterpreter | None = _PerlInterpreter()
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
 
     def _get_interp(self) -> _PerlInterpreter:
         with self._lock:

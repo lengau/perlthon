@@ -4,10 +4,18 @@ import re
 import subprocess
 from pathlib import Path
 
+from ._perl import _find_perl
 from .typed import _introspect_module
 
 _POD_MARKUP_RE = re.compile(r"[A-Z]<([^>]+)>")
 _POD_NAME_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)")
+_MODULE_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)*$")
+
+
+def _validate_module_name(name: str) -> str:
+    if not _MODULE_NAME_RE.match(name):
+        raise ValueError(f"Invalid Perl module name: {name!r}")
+    return name
 
 
 def _class_name(module_name: str) -> str:
@@ -30,6 +38,7 @@ def _ensure_packages(root: Path, path: Path) -> None:
 
 
 def _module_file(module_name: str) -> Path | None:
+    module_name = _validate_module_name(module_name)
     script = (
         "use strict; use warnings; my $module = shift @ARGV;"
         "(my $file = $module) =~ s!::!/!g; $file .= '.pm';"
@@ -37,7 +46,7 @@ def _module_file(module_name: str) -> Path | None:
         "print $INC{$file} // q{};"
     )
     result = subprocess.run(
-        ["perl", "-e", script, module_name],
+        [_find_perl(), "-e", script, module_name],
         capture_output=True,
         text=True,
         check=False,
@@ -110,9 +119,15 @@ def _pod_docs(module_name: str, functions: list[str]) -> dict[str, str]:
     return docs
 
 
-def _docstring_block(text: str) -> str:
-    escaped = text.replace('"""', '"""')
-    return f'        """{escaped}"""\n'
+def _docstring_block(text: str, indent: str = "    ") -> str:
+    escaped = text.replace("\\", "\\\\").replace('"""', '\\"\\"\\"')
+    escaped = escaped.rstrip('"')
+    lines = escaped.split("\n")
+    result = f'{indent}"""\n'
+    for line in lines:
+        result += f"{indent}{line}\n" if line.strip() else f"{indent}\n"
+    result += f'{indent}"""\n'
+    return result
 
 
 def _render_stub(module_name: str, functions: list[str]) -> str:
@@ -134,7 +149,7 @@ def _render_stub(module_name: str, functions: list[str]) -> str:
         lines.append("\n")
         lines.append(f"    def {function_name}(self, *args: Any) -> Any:\n")
         if doc := docs.get(function_name):
-            lines.append(_docstring_block(doc))
+            lines.append(_docstring_block(doc, indent="        "))
         lines.append("        ...\n")
     return "".join(lines)
 
@@ -144,6 +159,7 @@ def generate_stubs(modules: list[str], output_dir: str) -> None:
     root.mkdir(parents=True, exist_ok=True)
 
     for module_name in modules:
+        module_name = _validate_module_name(module_name)
         functions = _introspect_module(module_name)
         stub_path = _stub_path(root, module_name)
         stub_path.parent.mkdir(parents=True, exist_ok=True)
