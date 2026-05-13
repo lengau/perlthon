@@ -323,8 +323,7 @@ class TestTypeConversions:
 
     def test_return_hash_multiple_keys(self):
         result = perlthon.eval(
-            'do { my %h = (a => 1, b => 2, c => 3, d => 4, e => 5);'
-            ' +{%h} }'
+            "do { my %h = (a => 1, b => 2, c => 3, d => 4, e => 5); +{%h} }"
         )
         assert isinstance(result, dict)
         assert len(result) == 5
