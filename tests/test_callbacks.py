@@ -1,8 +1,12 @@
 """Tests for Python-to-Perl callback registration."""
 
+import gc
+import weakref
+
 import pytest
 
 import perlthon
+from perlthon._core import PerlInterpreter
 
 
 class TestCallbacks:
@@ -57,3 +61,31 @@ class TestCallbacks:
     def test_unregistered_name_raises_error(self):
         with pytest.raises(RuntimeError, match="Undefined subroutine"):
             perlthon.eval("Missing::callback()")
+
+    def test_callback_registry_isolated_per_interpreter(self):
+        first = PerlInterpreter()
+        second = PerlInterpreter()
+
+        first.register_callback("Scoped::name", lambda: "first")
+        second.register_callback("Scoped::name", lambda: "second")
+
+        assert first.eval("Scoped::name()") == "first"
+        assert second.eval("Scoped::name()") == "second"
+
+    def test_callbacks_removed_when_interpreter_drops(self):
+        class Callback:
+            def __call__(self):
+                return "ok"
+
+        interp = PerlInterpreter()
+        callback = Callback()
+        callback_ref = weakref.ref(callback)
+
+        interp.register_callback("Cleanup::callback", callback)
+        del callback
+        gc.collect()
+        assert callback_ref() is not None
+
+        del interp
+        gc.collect()
+        assert callback_ref() is None

@@ -97,7 +97,10 @@ unsafe extern "C" {
     fn strdup(s: *const c_char) -> *mut c_char;
 }
 
-static CALLBACK_REGISTRY: LazyLock<Mutex<HashMap<String, Py<PyAny>>>> =
+type CallbackKey = (usize, String);
+type CallbackRegistry = HashMap<CallbackKey, Py<PyAny>>;
+
+static CALLBACK_REGISTRY: LazyLock<Mutex<CallbackRegistry>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 static CURRENT_INTERPRETER: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 
@@ -213,7 +216,13 @@ unsafe fn py_to_sv(
     if let Ok(list) = obj.cast::<PyList>() {
         let av = unsafe { perlthon_new_av(interp) };
         for item in list.iter() {
-            let value = unsafe { py_to_sv(_py, interp, &item) }?;
+            let value = match unsafe { py_to_sv(_py, interp, &item) } {
+                Ok(value) => value,
+                Err(err) => {
+                    unsafe { decref_sv(interp, av) };
+                    return Err(err);
+                }
+            };
             unsafe { perlthon_av_push(interp, av, value) };
         }
         return Ok(av);
@@ -221,7 +230,13 @@ unsafe fn py_to_sv(
     if let Ok(tuple) = obj.cast::<PyTuple>() {
         let av = unsafe { perlthon_new_av(interp) };
         for item in tuple.iter() {
-            let value = unsafe { py_to_sv(_py, interp, &item) }?;
+            let value = match unsafe { py_to_sv(_py, interp, &item) } {
+                Ok(value) => value,
+                Err(err) => {
+                    unsafe { decref_sv(interp, av) };
+                    return Err(err);
+                }
+            };
             unsafe { perlthon_av_push(interp, av, value) };
         }
         return Ok(av);
@@ -229,13 +244,34 @@ unsafe fn py_to_sv(
     if let Ok(dict) = obj.cast::<PyDict>() {
         let hv = unsafe { perlthon_new_hv(interp) };
         for (key, value) in dict.iter() {
-            let key = key.extract::<String>()?;
-            let c_key = CString::new(key.as_bytes())
-                .map_err(|_| PyRuntimeError::new_err("Dict key contains null byte"))?;
-            let sv_value = unsafe { py_to_sv(_py, interp, &value) }?;
+            let key = match key.extract::<String>() {
+                Ok(key) => key,
+                Err(err) => {
+                    unsafe { decref_sv(interp, hv) };
+                    return Err(err);
+                }
+            };
+            let c_key = match CString::new(key.as_bytes()) {
+                Ok(c_key) => c_key,
+                Err(_) => {
+                    unsafe { decref_sv(interp, hv) };
+                    return Err(PyRuntimeError::new_err("Dict key contains null byte"));
+                }
+            };
+            let sv_value = match unsafe { py_to_sv(_py, interp, &value) } {
+                Ok(sv_value) => sv_value,
+                Err(err) => {
+                    unsafe { decref_sv(interp, hv) };
+                    return Err(err);
+                }
+            };
             let stored =
                 unsafe { perlthon_hv_store(interp, hv, c_key.as_ptr(), key.len(), sv_value) };
             if stored == 0 {
+                unsafe {
+                    decref_sv(interp, sv_value);
+                    decref_sv(interp, hv);
+                };
                 return Err(PyRuntimeError::new_err(
                     "Failed to store value in Perl hash",
                 ));
@@ -258,11 +294,15 @@ fn current_interpreter() -> *mut PerlInterpreterC {
     *CURRENT_INTERPRETER.lock().unwrap() as *mut PerlInterpreterC
 }
 
+unsafe fn decref_sv(interp: *mut PerlInterpreterC, sv: *mut SV) {
+    if !sv.is_null() {
+        unsafe { perlthon_sv_decref(interp, sv) };
+    }
+}
+
 unsafe fn free_sv_args(interp: *mut PerlInterpreterC, args: &mut Vec<*mut SV>) {
     for sv in args.drain(..) {
-        if !sv.is_null() {
-            unsafe { perlthon_sv_decref(interp, sv) };
-        }
+        unsafe { decref_sv(interp, sv) };
     }
 }
 
@@ -292,9 +332,10 @@ fn register_callback_impl(
     let c_name = CString::new(name)
         .map_err(|_| PyRuntimeError::new_err("Callback name contains null byte"))?;
 
+    let registry_key = (interp as usize, name.to_owned());
     let previous = {
         let mut registry = CALLBACK_REGISTRY.lock().unwrap();
-        registry.insert(name.to_owned(), callable)
+        registry.insert(registry_key.clone(), callable)
     };
 
     let mut error: *mut c_char = ptr::null_mut();
@@ -302,9 +343,9 @@ fn register_callback_impl(
     if rc != 0 {
         let mut registry = CALLBACK_REGISTRY.lock().unwrap();
         if let Some(previous) = previous {
-            registry.insert(name.to_owned(), previous);
+            registry.insert(registry_key, previous);
         } else {
-            registry.remove(name);
+            registry.remove(&registry_key);
         }
         unsafe { check_error(error) }
     } else {
@@ -334,7 +375,7 @@ unsafe extern "C" fn perlthon_dispatch_callback(
             let callback = {
                 let registry = CALLBACK_REGISTRY.lock().unwrap();
                 registry
-                    .get(&name)
+                    .get(&(interp as usize, name.clone()))
                     .map(|cb| cb.clone_ref(py))
                     .ok_or_else(|| {
                         PyRuntimeError::new_err(format!("No Python callback registered for {name}"))
@@ -532,8 +573,13 @@ mod _core {
         fn drop(&mut self) {
             let interp = self.inner.lock().unwrap();
             if !(*interp).is_null() {
+                let interp_id = *interp as usize;
+                let mut registry = CALLBACK_REGISTRY.lock().unwrap();
+                registry.retain(|(registered_interp, _), _| *registered_interp != interp_id);
+                drop(registry);
+
                 let mut current = CURRENT_INTERPRETER.lock().unwrap();
-                if *current == *interp as usize {
+                if *current == interp_id {
                     *current = 0;
                 }
                 unsafe { perlthon_destroy(*interp) };
