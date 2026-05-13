@@ -5,17 +5,11 @@ import subprocess
 from pathlib import Path
 
 from ._perl import _find_perl
-from .typed import _introspect_module
+from ._validation import validate_module_name
+from .typed import _introspect_module, _python_name_map
 
 _POD_MARKUP_RE = re.compile(r"[A-Z]<([^>]+)>")
 _POD_NAME_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)")
-_MODULE_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)*$")
-
-
-def _validate_module_name(name: str) -> str:
-    if not _MODULE_NAME_RE.match(name):
-        raise ValueError(f"Invalid Perl module name: {name!r}")
-    return name
 
 
 def _class_name(module_name: str) -> str:
@@ -38,7 +32,7 @@ def _ensure_packages(root: Path, path: Path) -> None:
 
 
 def _module_file(module_name: str) -> Path | None:
-    module_name = _validate_module_name(module_name)
+    module_name = validate_module_name(module_name)
     script = (
         "use strict; use warnings; my $module = shift @ARGV;"
         "(my $file = $module) =~ s!::!/!g; $file .= '.pm';"
@@ -133,6 +127,7 @@ def _docstring_block(text: str, indent: str = "    ") -> str:
 def _render_stub(module_name: str, functions: list[str]) -> str:
     class_name = _class_name(module_name)
     docs = _pod_docs(module_name, functions)
+    name_map = _python_name_map(functions)
     lines = [
         "from typing import Any\n",
         "\n",
@@ -143,11 +138,11 @@ def _render_stub(module_name: str, functions: list[str]) -> str:
         "\n",
         "    def available_functions(self) -> list[str]: ...\n",
     ]
-    for function_name in functions:
-        if not function_name.isidentifier():
-            continue
+    for stub_name, function_name in name_map.items():
         lines.append("\n")
-        lines.append(f"    def {function_name}(self, *args: Any) -> Any:\n")
+        if stub_name != function_name:
+            lines.append(f"    # Perl: {function_name} -> Python: {stub_name}\n")
+        lines.append(f"    def {stub_name}(self, *args: Any) -> Any:\n")
         if doc := docs.get(function_name):
             lines.append(_docstring_block(doc, indent="        "))
         lines.append("        ...\n")
@@ -159,7 +154,7 @@ def generate_stubs(modules: list[str], output_dir: str) -> None:
     root.mkdir(parents=True, exist_ok=True)
 
     for module_name in modules:
-        module_name = _validate_module_name(module_name)
+        module_name = validate_module_name(module_name)
         functions = _introspect_module(module_name)
         stub_path = _stub_path(root, module_name)
         stub_path.parent.mkdir(parents=True, exist_ok=True)

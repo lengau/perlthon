@@ -32,6 +32,19 @@ Module-level functions
    :returns: The return value from Perl, converted to a Python type.
 
 
+CPAN helpers
+------------
+
+.. function:: perlthon.cpan.install(*modules: str, lib: str | None = None, mirror: str | None = None) -> None
+
+   Install one or more CPAN modules with ``cpanm``.
+
+   Perlthon pins installs to ``https://cpan.metacpan.org`` by default,
+   ignores ambient ``PERL_CPANM_*`` configuration, requires HTTPS mirror
+   overrides, and enables ``cpanm --verify`` when the local ``cpanm``
+   supports it.
+
+
 Classes
 -------
 

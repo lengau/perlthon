@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, Any
 from perlthon._core import PerlInterpreter as _PerlInterpreter
 from perlthon._core import hello_from_bin
 
+from ._validation import validate_function_name, validate_module_name
+
 # Type alias for values returned from Perl
 type PerlValue = str | int | float | bool | list[Any] | dict[str, Any] | None
 
@@ -79,7 +81,7 @@ class PerlModule:
         get_interp: InterpreterGetter = _get_interpreter,
         lock: object | None = None,
     ) -> None:
-        self._name = name
+        self._name = validate_module_name(name)
         self._get_interp = get_interp
         self._lock = lock
 
@@ -87,10 +89,18 @@ class PerlModule:
         return f"PerlModule({self._name!r})"
 
     def __getattr__(self, name: str) -> PerlCallable:
-        return PerlCallable(self._get_interp, self._name, name, self._lock)
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return PerlCallable(
+            self._get_interp,
+            self._name,
+            validate_function_name(name),
+            self._lock,
+        )
 
     def call(self, method: str, *args: object) -> PerlValue:
         """Call a method on this Perl module (OO-style, passes module as invocant)."""
+        method = validate_function_name(method)
         if self._lock is None:
             return self._get_interp().call_method(self._name, method, list(args))
         with self._lock:
@@ -117,8 +127,8 @@ class PerlCallable:
         lock: object | None = None,
     ) -> None:
         self._get_interp = get_interp
-        self._module = module
-        self._method = method
+        self._module = validate_module_name(module)
+        self._method = validate_function_name(method)
         self._lock = lock
 
     def __repr__(self) -> str:
@@ -149,11 +159,13 @@ class Interpreter:
         return self._get_interp().eval(code)
 
     def use(self, module_name: str) -> PerlModule:
+        module_name = validate_module_name(module_name)
         interp = self._get_interp()
         interp.use_module(module_name)
         return PerlModule(module_name, self._get_interp, self._lock)
 
     def call(self, function_name: str, *args: object) -> PerlValue:
+        function_name = validate_function_name(function_name)
         return self._get_interp().call_function(function_name, list(args))
 
     def close(self) -> None:
@@ -182,6 +194,7 @@ def use(module_name: str) -> PerlModule:
     Returns:
         A :class:`PerlModule` proxy that supports method calls.
     """
+    module_name = validate_module_name(module_name)
     with _interpreter_lock:
         interp = _get_interpreter()
         interp.use_module(module_name)
@@ -214,6 +227,7 @@ def call(function_name: str, *args: object) -> PerlValue:
     Returns:
         The return value from Perl, converted to a Python type.
     """
+    function_name = validate_function_name(function_name)
     with _interpreter_lock:
         interp = _get_interpreter()
         return interp.call_function(function_name, list(args))
@@ -237,6 +251,7 @@ def register(
     name: str, func: Callable[..., object] | None = None
 ) -> Callable[..., object]:
     """Register a Python callable as a Perl subroutine."""
+    name = validate_function_name(name)
 
     def decorator(callback: Callable[..., object]) -> Callable[..., object]:
         with _interpreter_lock:
