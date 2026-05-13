@@ -36,6 +36,15 @@ _EXCLUDED_SYMBOLS = frozenset(
 _RESERVED_TYPED_METHOD_NAMES = frozenset({"available_functions"})
 
 
+def _reserved_typed_attribute_names(cls: type[TypedModule]) -> set[str]:
+    return {
+        name
+        for base in cls.__mro__
+        for name in base.__dict__
+        if not name.startswith("_")
+    }
+
+
 def _perl_quote(value: str) -> str:
     escaped = value.replace("\\", "\\\\").replace("'", "\\'")
     return f"'{escaped}'"
@@ -139,10 +148,15 @@ class TypedModule:
             raise AttributeError(msg)
 
         alias_names = self._aliases_by_function.get(resolved_name, {name})
+        cacheable_alias_names = {
+            alias_name
+            for alias_name in alias_names | {name}
+            if alias_name not in _reserved_typed_attribute_names(type(self))
+        }
         caller = next(
             (
                 self.__dict__[alias_name]
-                for alias_name in alias_names
+                for alias_name in cacheable_alias_names
                 if alias_name in self.__dict__
             ),
             None,
@@ -155,7 +169,7 @@ class TypedModule:
             caller.__name__ = name
             caller.__qualname__ = f"{self._module_name}.{name}"
 
-        for alias_name in alias_names | {name}:
+        for alias_name in cacheable_alias_names:
             self.__dict__[alias_name] = caller
         return caller
 

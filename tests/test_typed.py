@@ -159,6 +159,28 @@ class TestTypedModule:
         assert module.sum(1, 2) == ("Example::sum", (1, 2))
         assert module.sum_(3, 4) == ("Example::sum_", (3, 4))
 
+    def test_reserved_methods_are_not_overwritten_by_alias_caching(
+        self, monkeypatch
+    ) -> None:
+        typed_module = importlib.import_module("perlthon.typed")
+
+        monkeypatch.setattr(
+            typed_module,
+            "_introspect_module",
+            lambda module_name: ["available_functions"],
+        )
+        monkeypatch.setattr(
+            typed_module,
+            "perl_call",
+            lambda target, *args: (target, args),
+        )
+
+        module = typed_module.TypedModule("Example")
+
+        assert module.available_functions_() == ("Example::available_functions", ())
+        assert module.available_functions() == ["available_functions"]
+        assert "available_functions" not in module.__dict__
+
     def test_repr_is_informative(self) -> None:
         posix = perlthon.typed("POSIX")
 
