@@ -80,6 +80,29 @@ class TestTypedModule:
         assert module.print_("value") == ("Example::print", ("value",))
         assert getattr(module, "class") is module.class_
 
+    def test_collision_safe_aliases_match_stub_resolution(self, monkeypatch) -> None:
+        typed_module = importlib.import_module("perlthon.typed")
+
+        monkeypatch.setattr(
+            typed_module,
+            "_introspect_module",
+            lambda module_name: ["sum", "sum_"],
+        )
+        monkeypatch.setattr(
+            typed_module,
+            "perl_call",
+            lambda target, *args: (target, args),
+        )
+
+        module = typed_module.TypedModule("Example")
+
+        assert "sum" in dir(module)
+        assert "sum_" in dir(module)
+        assert "sum__" in dir(module)
+        assert module.sum(1, 2) == ("Example::sum", (1, 2))
+        assert module.sum_(1, 2) == ("Example::sum", (1, 2))
+        assert module.sum__(3, 4) == ("Example::sum_", (3, 4))
+
     def test_repr_is_informative(self) -> None:
         posix = perlthon.typed("POSIX")
 
@@ -193,6 +216,30 @@ class TestGenerateStubs:
         assert "def print_(self, *args: Any) -> Any:" in stub_text
         assert "def normal(self, *args: Any) -> Any:" in stub_text
         compile(stub_text, str(tmp_path / "Example" / "Keywords.pyi"), "exec")
+
+    def test_generated_stub_resolves_name_collisions(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        stubs = importlib.import_module("perlthon.stubs")
+
+        monkeypatch.setattr(
+            stubs,
+            "_introspect_module",
+            lambda module_name: ["sum", "sum_"],
+        )
+        monkeypatch.setattr(stubs, "_pod_docs", lambda module_name, functions: {})
+
+        stubs.generate_stubs(["Example::Collisions"], output_dir=str(tmp_path))
+
+        stub_text = (tmp_path / "Example" / "Collisions.pyi").read_text(
+            encoding="utf-8"
+        )
+
+        assert "# Perl: sum -> Python: sum_" in stub_text
+        assert "# Perl: sum_ -> Python: sum__" in stub_text
+        assert "def sum_(self, *args: Any) -> Any:" in stub_text
+        assert "def sum__(self, *args: Any) -> Any:" in stub_text
+        compile(stub_text, str(tmp_path / "Example" / "Collisions.pyi"), "exec")
 
     def test_generated_posix_stub_is_valid_python(self, tmp_path: Path) -> None:
         perlthon.generate_stubs(["POSIX"], output_dir=str(tmp_path))
