@@ -12,14 +12,14 @@ jobs:
   sdist:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Use upstream crates (not vendored)
         run: rm -f .cargo/config.toml
-      - uses: PyO3/maturin-action@v1
+      - uses: PyO3/maturin-action@423a6347767a8b16e65c2a7a7042e4a921528da8 # v1
         with:
           command: sdist
           args: --out dist
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sdist
           path: dist/*.tar.gz
@@ -27,10 +27,10 @@ jobs:
   wheel-linux-amd64:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Use upstream crates (not vendored)
         run: rm -f .cargo/config.toml
-      - uses: PyO3/maturin-action@v1
+      - uses: PyO3/maturin-action@423a6347767a8b16e65c2a7a7042e4a921528da8 # v1
         with:
           target: x86_64-unknown-linux-gnu
           manylinux: auto
@@ -38,7 +38,7 @@ jobs:
           before-script-linux: |
             rm -f .cargo/config.toml
             apt-get update && apt-get install -y libperl-dev libcrypt-dev
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: wheel-linux-amd64
           path: dist/*.whl
@@ -46,13 +46,13 @@ jobs:
   wheel-linux-arm64:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Use upstream crates (not vendored)
         run: rm -f .cargo/config.toml
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
         with:
           platforms: arm64
-      - uses: PyO3/maturin-action@v1
+      - uses: PyO3/maturin-action@423a6347767a8b16e65c2a7a7042e4a921528da8 # v1
         with:
           target: aarch64-unknown-linux-gnu
           manylinux: auto
@@ -60,7 +60,7 @@ jobs:
           before-script-linux: |
             rm -f .cargo/config.toml
             apt-get update && apt-get install -y libperl-dev libcrypt-dev
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: wheel-linux-arm64
           path: dist/*.whl
@@ -68,13 +68,13 @@ jobs:
   wheel-linux-riscv64-rva20:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Use upstream crates (not vendored)
         run: rm -f .cargo/config.toml
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
         with:
           platforms: riscv64
-      - uses: PyO3/maturin-action@v1
+      - uses: PyO3/maturin-action@423a6347767a8b16e65c2a7a7042e4a921528da8 # v1
         with:
           target: riscv64gc-unknown-linux-gnu
           manylinux: auto
@@ -84,12 +84,7 @@ jobs:
             apt-get update && apt-get install -y libperl-dev libcrypt-dev
         env:
           RUSTFLAGS: "-C target-cpu=generic-rv64"
-      - name: Rename wheel to indicate RVA20 profile
-        run: |
-          for f in dist/*.whl; do
-            mv "$f" "${f/linux_riscv64/linux_riscv64_rva20}"
-          done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: wheel-linux-riscv64-rva20
           path: dist/*.whl
@@ -97,13 +92,13 @@ jobs:
   wheel-linux-riscv64-rva23:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Use upstream crates (not vendored)
         run: rm -f .cargo/config.toml
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
         with:
           platforms: riscv64
-      - uses: PyO3/maturin-action@v1
+      - uses: PyO3/maturin-action@423a6347767a8b16e65c2a7a7042e4a921528da8 # v1
         with:
           target: riscv64gc-unknown-linux-gnu
           manylinux: auto
@@ -113,12 +108,7 @@ jobs:
             apt-get update && apt-get install -y libperl-dev libcrypt-dev
         env:
           RUSTFLAGS: "-C target-cpu=generic-rv64 -C target-feature=+v,+zba,+zbb,+zbs,+zicboz,+zicond,+zimop,+zfhmin,+zvfhmin"
-      - name: Rename wheel to indicate RVA23 profile
-        run: |
-          for f in dist/*.whl; do
-            mv "$f" "${f/linux_riscv64/linux_riscv64_rva23}"
-          done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: wheel-linux-riscv64-rva23
           path: dist/*.whl
@@ -132,12 +122,12 @@ jobs:
       - wheel-linux-riscv64-rva23
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: dist
           merge-multiple: true
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: dist/*
           generate_release_notes: true
