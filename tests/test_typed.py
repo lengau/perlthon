@@ -138,6 +138,20 @@ class TestGenerateStubs:
         assert (tmp_path / "POSIX.pyi").exists()
         assert (tmp_path / "List" / "Util.pyi").exists()
 
+    def test_render_stub_renames_keyword_functions(self) -> None:
+        stubs = importlib.import_module("perlthon.stubs")
+        # "assert" is a Python keyword; it must be renamed to "assert_"
+        result = stubs._render_stub("Foo::Bar", ["assert", "raise", "normal_func"])
+
+        assert "def assert_(self" in result, "keyword 'assert' should be renamed to 'assert_'"
+        assert "def raise_(self" in result, "keyword 'raise' should be renamed to 'raise_'"
+        assert "def normal_func(self" in result, "non-keyword name should be unchanged"
+        # Make sure the raw keyword does NOT appear as a method definition
+        assert "def assert(self" not in result
+        assert "def raise(self" not in result
+        # The resulting stub text must be valid Python
+        compile(result, "<generated>", "exec")
+
     def test_generated_stub_contains_function_definitions(self, tmp_path: Path) -> None:
         perlthon.generate_stubs(["POSIX", "List::Util"], output_dir=str(tmp_path))
 
@@ -147,3 +161,47 @@ class TestGenerateStubs:
         assert "class POSIX(TypedModule):" in posix_stub
         assert "def floor(self, *args: Any) -> Any:" in posix_stub
         assert "def sum(self, *args: Any) -> Any:" in list_util_stub
+
+
+class TestKeywordRenaming:
+    """TypedModule must reverse keyword-renamed attributes to dispatch correctly."""
+
+    def test_keyword_function_accessible_with_suffix(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A Perl function named after a Python keyword (e.g. 'not') should be
+        accessible as 'not_' on the TypedModule instance."""
+        import perlthon.typed as typed_mod
+        from unittest.mock import MagicMock, patch
+
+        # Patch _introspect_module to simulate a module exporting 'not'
+        with patch.object(typed_mod, "_introspect_module", return_value={"not": None}):
+            mod = typed_mod.TypedModule("FakeModule")
+            # 'not_' should be in dir()
+            assert "not_" in dir(mod)
+            assert "not" not in dir(mod)
+
+    def test_keyword_function_dispatches_to_perl_name(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Calling mod.not_() must dispatch to Perl 'FakeModule::not', not 'FakeModule::not_'."""
+        import perlthon.typed as typed_mod
+        from unittest.mock import patch, call as mock_call
+
+        captured = []
+
+        def fake_perl_call(name: str, *args: object) -> str:
+            captured.append(name)
+            return "ok"
+
+        with patch.object(typed_mod, "_introspect_module", return_value={"not": None}), \
+             patch.object(typed_mod, "perl_call", fake_perl_call):
+            mod = typed_mod.TypedModule("FakeModule")
+            mod.not_()  # should call FakeModule::not, not FakeModule::not_
+
+        assert captured == ["FakeModule::not"]
+
+    def test_ambiguous_exports_raise_at_init(self) -> None:
+        """If a Perl module exports both 'assert' and 'assert_', TypedModule must raise."""
+        import perlthon.typed as typed_mod
+        from unittest.mock import patch
+
+        with patch.object(typed_mod, "_introspect_module", return_value={"assert": None, "assert_": None}):
+            with pytest.raises(ValueError, match="Ambiguous Perl exports"):
+                typed_mod.TypedModule("BadModule")

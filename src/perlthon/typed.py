@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import keyword
 from typing import Any
 
 from . import (
@@ -81,23 +82,40 @@ class TypedModule:
     def __init__(self, module_name: str) -> None:
         self._module_name = module_name
         self._functions = _introspect_module(module_name)
+        # Detect ambiguous names: if a Perl module exports both e.g. 'assert'
+        # and 'assert_', both map to the Python name 'assert_' — raise early.
+        for f in self._functions:
+            if keyword.iskeyword(f) and f + "_" in self._functions:
+                raise ValueError(
+                    f"Ambiguous Perl exports in {module_name!r}: '{f}' and '{f}_' "
+                    f"both map to the Python attribute '{f}_'."
+                )
 
     def __repr__(self) -> str:
         count = len(self._functions)
         return f"TypedModule(module={self._module_name!r}, functions={count})"
 
     def __dir__(self) -> list[str]:
-        return sorted(set(super().__dir__()) | set(self._functions))
+        # Expose keyword-renamed names (e.g. 'assert_') instead of raw Perl names
+        renamed = {
+            (f + "_" if keyword.iskeyword(f) else f) for f in self._functions
+        }
+        return sorted(set(super().__dir__()) | renamed)
 
     def __getattr__(self, name: str) -> Any:
         if name.startswith("_"):
             raise AttributeError(name)
-        if name not in self._functions:
+        # Reverse the keyword renaming applied in stubs.py:
+        # e.g. 'assert_' -> 'assert' when 'assert' is a Python keyword.
+        perl_name = name
+        if name.endswith("_") and keyword.iskeyword(name[:-1]):
+            perl_name = name[:-1]
+        if perl_name not in self._functions:
             msg = f"Module {self._module_name} has no function {name!r}"
             raise AttributeError(msg)
 
         def caller(*args: object) -> PerlValue:
-            return perl_call(f"{self._module_name}::{name}", *args)
+            return perl_call(f"{self._module_name}::{perl_name}", *args)
 
         caller.__name__ = name
         caller.__qualname__ = f"{self._module_name}.{name}"
