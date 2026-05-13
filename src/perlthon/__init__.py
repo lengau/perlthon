@@ -7,6 +7,8 @@ from typing import Any
 from perlthon._core import PerlInterpreter as _PerlInterpreter
 from perlthon._core import hello_from_bin
 
+from . import cpan as cpan
+
 # Type alias for values returned from Perl
 type PerlValue = str | int | float | bool | list[Any] | dict[str, Any] | None
 
