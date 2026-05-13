@@ -13,13 +13,77 @@
 #include <stdio.h>
 #include <dlfcn.h>
 
+#ifndef PERLTHON_LIBPERL_PATH
+#define PERLTHON_LIBPERL_PATH NULL
+#endif
+
+#ifndef PERLTHON_LIBPERL_SONAME
+#define PERLTHON_LIBPERL_SONAME NULL
+#endif
+
+static char perlthon_bootstrap_error[512];
+
+static void perlthon_set_bootstrap_error(const char *target, const char *detail) {
+    snprintf(
+        perlthon_bootstrap_error,
+        sizeof(perlthon_bootstrap_error),
+        "Failed to promote libperl symbols with dlopen(%s): %s",
+        target,
+        detail ? detail : "unknown error"
+    );
+}
+
+const char *perlthon_last_bootstrap_error(void) {
+    return perlthon_bootstrap_error[0] ? perlthon_bootstrap_error : NULL;
+}
+
+static int perlthon_export_libperl_symbols(void) {
+    const char *candidates[] = {
+        PERLTHON_LIBPERL_PATH,
+        PERLTHON_LIBPERL_SONAME,
+        "libperl.so.5",
+        "libperl.so",
+        NULL,
+    };
+
+    perlthon_bootstrap_error[0] = '\0';
+
+    for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); ++i) {
+        const char *candidate = candidates[i];
+        int flags = RTLD_NOW | RTLD_GLOBAL;
+        if (candidate != NULL) {
+            flags |= RTLD_NOLOAD;
+        }
+
+        dlerror();
+        void *handle = dlopen(candidate, flags);
+        if (handle != NULL) {
+            return 1;
+        }
+
+        const char *detail = dlerror();
+        if (detail != NULL) {
+            perlthon_set_bootstrap_error(candidate ? candidate : "NULL", detail);
+        }
+    }
+
+    if (perlthon_bootstrap_error[0] == '\0') {
+        perlthon_set_bootstrap_error("NULL", "no libperl handle was available");
+    }
+
+    return 0;
+}
+
 /* --- Interpreter lifecycle --- */
 
 PerlInterpreter *perlthon_alloc(void) {
     /* When loaded as a Python extension, libperl's symbols aren't globally
      * visible. XS modules loaded by DynaLoader need them, so we re-open
-     * libperl with RTLD_GLOBAL to make its symbols available. */
-    dlopen("libperl.so.5.40", RTLD_NOW | RTLD_GLOBAL | RTLD_NOLOAD);
+     * the active libperl with RTLD_GLOBAL to make its symbols available. */
+    if (!perlthon_export_libperl_symbols()) {
+        return NULL;
+    }
+
     PerlInterpreter *my_perl = perl_alloc();
     if (my_perl) {
         PERL_SET_CONTEXT(my_perl);
