@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import keyword
 import re
 import subprocess
 from pathlib import Path
@@ -146,9 +147,12 @@ def _render_stub(module_name: str, functions: list[str]) -> str:
     for function_name in functions:
         if not function_name.isidentifier():
             continue
+        perl_name = function_name
+        if keyword.iskeyword(function_name):
+            function_name = function_name + "_"
         lines.append("\n")
         lines.append(f"    def {function_name}(self, *args: Any) -> Any:\n")
-        if doc := docs.get(function_name):
+        if doc := docs.get(perl_name):
             lines.append(_docstring_block(doc, indent="        "))
         lines.append("        ...\n")
     return "".join(lines)

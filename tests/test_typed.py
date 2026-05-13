@@ -138,6 +138,20 @@ class TestGenerateStubs:
         assert (tmp_path / "POSIX.pyi").exists()
         assert (tmp_path / "List" / "Util.pyi").exists()
 
+    def test_render_stub_renames_keyword_functions(self) -> None:
+        stubs = importlib.import_module("perlthon.stubs")
+        # "assert" is a Python keyword; it must be renamed to "assert_"
+        result = stubs._render_stub("Foo::Bar", ["assert", "raise", "normal_func"])
+
+        assert "def assert_(self" in result, "keyword 'assert' should be renamed to 'assert_'"
+        assert "def raise_(self" in result, "keyword 'raise' should be renamed to 'raise_'"
+        assert "def normal_func(self" in result, "non-keyword name should be unchanged"
+        # Make sure the raw keyword does NOT appear as a method definition
+        assert "def assert(self" not in result
+        assert "def raise(self" not in result
+        # The resulting stub text must be valid Python
+        compile(result, "<generated>", "exec")
+
     def test_generated_stub_contains_function_definitions(self, tmp_path: Path) -> None:
         perlthon.generate_stubs(["POSIX", "List::Util"], output_dir=str(tmp_path))
 
