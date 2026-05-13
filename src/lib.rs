@@ -173,7 +173,15 @@ impl Deref for InterpreterGuard<'_> {
 
 impl Drop for InterpreterGuard<'_> {
     fn drop(&mut self) {
-        let mut state = self.lock.state.lock().unwrap();
+        let mut state = self
+            .lock
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if thread::panicking() {
+            return;
+        }
+
         state.depth -= 1;
         if state.depth == 0 {
             state.owner = None;
