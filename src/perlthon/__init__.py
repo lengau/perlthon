@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable
+from importlib import import_module
 from typing import Any
 
 from perlthon._core import PerlInterpreter as _PerlInterpreter
@@ -11,6 +12,19 @@ from perlthon._core import hello_from_bin
 
 # Type alias for values returned from Perl
 type PerlValue = str | int | float | bool | list[Any] | dict[str, Any] | None
+
+__all__ = [
+    "Interpreter",
+    "PerlCallable",
+    "PerlModule",
+    "PerlValue",
+    "call",
+    "cpan",
+    "eval",
+    "hello",
+    "interpreter",
+    "use",
+]
 
 type InterpreterGetter = Callable[[], _PerlInterpreter]
 
@@ -158,3 +172,12 @@ def eval(code: str) -> PerlValue:
         The result of the evaluation, converted to a Python type.
     """
     return _get_interpreter().eval(code)
+
+
+def __getattr__(name: str) -> object:
+    if name == "cpan":
+        module = import_module(".cpan", __name__)
+        globals()["cpan"] = module
+        return module
+    msg = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(msg)
