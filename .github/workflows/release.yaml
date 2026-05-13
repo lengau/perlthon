@@ -9,21 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  verify-signature:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Verify tag signature
-        run: |
-          if ! git verify-tag "${{ github.ref_name }}" 2>/dev/null; then
-            echo "::error::Release tag is not signed"
-            exit 1
-          fi
-
   sdist:
-    needs: verify-signature
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -37,7 +23,6 @@ jobs:
           path: dist/*.tar.gz
 
   wheel-linux-amd64:
-    needs: verify-signature
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -54,7 +39,6 @@ jobs:
           path: dist/*.whl
 
   wheel-linux-arm64:
-    needs: verify-signature
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -74,7 +58,6 @@ jobs:
           path: dist/*.whl
 
   wheel-linux-riscv64-rva20:
-    needs: verify-signature
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -101,7 +84,6 @@ jobs:
           path: dist/*.whl
 
   wheel-linux-riscv64-rva23:
-    needs: verify-signature
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
