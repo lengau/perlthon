@@ -7,8 +7,10 @@
 
 #include <EXTERN.h>
 #include <perl.h>
+#include <XSUB.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <dlfcn.h>
 
 /* --- Interpreter lifecycle --- */
@@ -32,10 +34,44 @@ EXTERN_C void xs_init(pTHX);
 /* Boot DynaLoader so XS modules can be loaded dynamically */
 EXTERN_C void boot_DynaLoader(pTHX_ CV *cv);
 
+extern SV *perlthon_dispatch_callback(
+    PerlInterpreter *my_perl,
+    const char *name,
+    int argc,
+    SV **argv,
+    char **error
+);
+
+XS(perlthon_callback_dispatch_xs) {
+    dXSARGS;
+
+    if (items < 1) {
+        croak("perlthon::__dispatch_callback requires a callback name");
+    }
+
+    char *error = NULL;
+    const char *name = SvPV_nolen(ST(0));
+    SV **args = items > 1 ? &PL_stack_base[ax + 1] : NULL;
+    SV *result = perlthon_dispatch_callback(aTHX, name, items - 1, args, &error);
+
+    if (!result) {
+        if (error) {
+            SV *errsv = newSVpv(error, 0);
+            free(error);
+            croak_sv(errsv);
+        }
+        XSRETURN_UNDEF;
+    }
+
+    ST(0) = sv_2mortal(result);
+    XSRETURN(1);
+}
+
 EXTERN_C void xs_init(pTHX) {
     static const char file[] = __FILE__;
     dXSUB_SYS;
     newXS("DynaLoader::boot_DynaLoader", boot_DynaLoader, file);
+    newXS("perlthon::__dispatch_callback", perlthon_callback_dispatch_xs, file);
 }
 
 int perlthon_init(PerlInterpreter *my_perl) {
@@ -58,15 +94,11 @@ void perlthon_destroy(PerlInterpreter *my_perl) {
 
 /* --- eval --- */
 
-/* Evaluate Perl code. Returns an SV* (caller must interpret).
- * Sets *error to the error message if evaluation fails (caller must free). */
 SV *perlthon_eval(PerlInterpreter *my_perl, const char *code, char **error) {
     PERL_SET_CONTEXT(my_perl);
-    dSP;
 
     SV *result = eval_pv(code, 0 /* don't croak */);
 
-    /* Check $@ for errors */
     SV *errsv = get_sv("@", 0);
     if (errsv && SvTRUE(errsv)) {
         const char *err = SvPV_nolen(errsv);
@@ -75,7 +107,6 @@ SV *perlthon_eval(PerlInterpreter *my_perl, const char *code, char **error) {
     }
 
     *error = NULL;
-    /* Increment refcount so the SV survives beyond the current scope */
     SvREFCNT_inc(result);
     return result;
 }
@@ -85,7 +116,6 @@ SV *perlthon_eval(PerlInterpreter *my_perl, const char *code, char **error) {
 int perlthon_use_module(PerlInterpreter *my_perl, const char *module_name, char **error) {
     PERL_SET_CONTEXT(my_perl);
 
-    /* Use require + import, checking %INC first to avoid reload errors. */
     char buf[2048];
     snprintf(buf, sizeof(buf),
              "do { my $f = '%s.pm'; $f =~ s|::|/|g;"
@@ -105,10 +135,66 @@ int perlthon_use_module(PerlInterpreter *my_perl, const char *module_name, char 
     return 0;
 }
 
+/* --- Callback registration --- */
+
+static char *perlthon_quote_single_quoted(const char *input) {
+    size_t len = strlen(input);
+    char *quoted = malloc(len * 2 + 1);
+    if (!quoted) {
+        return NULL;
+    }
+
+    char *out = quoted;
+    for (const char *cur = input; *cur; cur++) {
+        if (*cur == '\\' || *cur == '\'') {
+            *out++ = '\\';
+        }
+        *out++ = *cur;
+    }
+    *out = '\0';
+    return quoted;
+}
+
+int perlthon_install_callback(PerlInterpreter *my_perl, const char *name, char **error) {
+    PERL_SET_CONTEXT(my_perl);
+
+    char *quoted_name = perlthon_quote_single_quoted(name);
+    if (!quoted_name) {
+        *error = strdup("Failed to allocate callback name buffer");
+        return -1;
+    }
+
+    size_t code_len = strlen(quoted_name) * 2 + 128;
+    char *code = malloc(code_len);
+    if (!code) {
+        free(quoted_name);
+        *error = strdup("Failed to allocate callback installer buffer");
+        return -1;
+    }
+
+    snprintf(code, code_len,
+             "do { no strict 'refs'; *{'%s'} = sub { perlthon::__dispatch_callback('%s', @_) }; 1; }",
+             quoted_name, quoted_name);
+    free(quoted_name);
+
+    eval_pv(code, 0);
+    free(code);
+
+    SV *errsv = get_sv("@", 0);
+    if (errsv && SvTRUE(errsv)) {
+        const char *err = SvPV_nolen(errsv);
+        *error = strdup(err);
+        return -1;
+    }
+
+    *error = NULL;
+    return 0;
+}
+
 /* --- Call a Perl function by fully qualified name --- */
 
 SV *perlthon_call_function(PerlInterpreter *my_perl, const char *func_name,
-                            int argc, SV **argv, char **error) {
+                           int argc, SV **argv, char **error) {
     PERL_SET_CONTEXT(my_perl);
     dSP;
 
@@ -152,7 +238,7 @@ SV *perlthon_call_function(PerlInterpreter *my_perl, const char *func_name,
 /* --- Call a method on a module/class --- */
 
 SV *perlthon_call_method(PerlInterpreter *my_perl, const char *module,
-                          const char *method, int argc, SV **argv, char **error) {
+                         const char *method, int argc, SV **argv, char **error) {
     PERL_SET_CONTEXT(my_perl);
     dSP;
 
@@ -160,7 +246,6 @@ SV *perlthon_call_method(PerlInterpreter *my_perl, const char *module,
     SAVETMPS;
 
     PUSHMARK(SP);
-    /* Push the invocant (class name) */
     XPUSHs(sv_2mortal(newSVpv(module, 0)));
     for (int i = 0; i < argc; i++) {
         XPUSHs(argv[i]);
@@ -197,20 +282,19 @@ SV *perlthon_call_method(PerlInterpreter *my_perl, const char *module,
 
 /* --- SV type introspection and value extraction --- */
 
-/* Returns: 0=undef, 1=int, 2=float, 3=string, 4=arrayref, 5=hashref, 6=other_ref */
 int perlthon_sv_type(PerlInterpreter *my_perl, SV *sv) {
     PERL_SET_CONTEXT(my_perl);
-    if (!sv || !SvOK(sv)) return 0;  /* undef */
+    if (!sv || !SvOK(sv)) return 0;
     if (SvROK(sv)) {
         SV *inner = SvRV(sv);
         svtype t = SvTYPE(inner);
-        if (t == SVt_PVAV) return 4;  /* arrayref */
-        if (t == SVt_PVHV) return 5;  /* hashref */
-        return 6;  /* other ref */
+        if (t == SVt_PVAV) return 4;
+        if (t == SVt_PVHV) return 5;
+        return 6;
     }
-    if (SvIOK(sv)) return 1;  /* integer */
-    if (SvNOK(sv)) return 2;  /* float */
-    return 3;  /* string (fallback) */
+    if (SvIOK(sv)) return 1;
+    if (SvNOK(sv)) return 2;
+    return 3;
 }
 
 long long perlthon_sv_iv(PerlInterpreter *my_perl, SV *sv) {
@@ -223,7 +307,6 @@ double perlthon_sv_nv(PerlInterpreter *my_perl, SV *sv) {
     return SvNV(sv);
 }
 
-/* Returns pointer to string and sets *len. Caller must NOT free the pointer. */
 const char *perlthon_sv_pv(PerlInterpreter *my_perl, SV *sv, size_t *len) {
     PERL_SET_CONTEXT(my_perl);
     STRLEN l;
@@ -236,7 +319,7 @@ const char *perlthon_sv_pv(PerlInterpreter *my_perl, SV *sv, size_t *len) {
 int perlthon_av_len(PerlInterpreter *my_perl, SV *sv) {
     PERL_SET_CONTEXT(my_perl);
     AV *av = (AV *)SvRV(sv);
-    return (int)(av_len(av) + 1);  /* av_len returns highest index */
+    return (int)(av_len(av) + 1);
 }
 
 SV *perlthon_av_fetch(PerlInterpreter *my_perl, SV *sv, int index) {
@@ -257,10 +340,8 @@ int perlthon_hv_iterinit(PerlInterpreter *my_perl, SV *sv) {
     return (int)hv_iterinit(hv);
 }
 
-/* Returns 1 if got a key/value pair, 0 if done.
- * Sets *key, *klen, and *val. Caller must SvREFCNT_dec val when done. */
 int perlthon_hv_iternext(PerlInterpreter *my_perl, SV *sv,
-                          const char **key, size_t *klen, SV **val) {
+                         const char **key, size_t *klen, SV **val) {
     PERL_SET_CONTEXT(my_perl);
     HV *hv = (HV *)SvRV(sv);
     HE *entry = hv_iternext(hv);
@@ -278,27 +359,49 @@ int perlthon_hv_iternext(PerlInterpreter *my_perl, SV *sv,
 
 SV *perlthon_new_sv_iv(PerlInterpreter *my_perl, long long val) {
     PERL_SET_CONTEXT(my_perl);
-    return sv_2mortal(newSViv((IV)val));
+    return newSViv((IV)val);
 }
 
 SV *perlthon_new_sv_nv(PerlInterpreter *my_perl, double val) {
     PERL_SET_CONTEXT(my_perl);
-    return sv_2mortal(newSVnv(val));
+    return newSVnv(val);
 }
 
 SV *perlthon_new_sv_pv(PerlInterpreter *my_perl, const char *s, size_t len) {
     PERL_SET_CONTEXT(my_perl);
-    return sv_2mortal(newSVpvn(s, len));
+    return newSVpvn(s, len);
 }
 
 SV *perlthon_new_sv_bool(PerlInterpreter *my_perl, int val) {
     PERL_SET_CONTEXT(my_perl);
-    return sv_2mortal(val ? &PL_sv_yes : &PL_sv_no);
+    return newSViv(val ? 1 : 0);
 }
 
 SV *perlthon_new_sv_undef(PerlInterpreter *my_perl) {
     PERL_SET_CONTEXT(my_perl);
-    return sv_2mortal(newSV(0));
+    return newSV(0);
+}
+
+SV *perlthon_new_av(PerlInterpreter *my_perl) {
+    PERL_SET_CONTEXT(my_perl);
+    return newRV_noinc((SV *)newAV());
+}
+
+void perlthon_av_push(PerlInterpreter *my_perl, SV *sv, SV *value) {
+    PERL_SET_CONTEXT(my_perl);
+    AV *av = (AV *)SvRV(sv);
+    av_push(av, value);
+}
+
+SV *perlthon_new_hv(PerlInterpreter *my_perl) {
+    PERL_SET_CONTEXT(my_perl);
+    return newRV_noinc((SV *)newHV());
+}
+
+int perlthon_hv_store(PerlInterpreter *my_perl, SV *sv, const char *key, size_t klen, SV *value) {
+    PERL_SET_CONTEXT(my_perl);
+    HV *hv = (HV *)SvRV(sv);
+    return hv_store(hv, key, (I32)klen, value, 0) != NULL;
 }
 
 void perlthon_sv_decref(PerlInterpreter *my_perl, SV *sv) {

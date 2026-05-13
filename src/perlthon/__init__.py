@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 from importlib import import_module
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from perlthon._core import PerlInterpreter as _PerlInterpreter
 from perlthon._core import hello_from_bin
@@ -18,13 +18,20 @@ __all__ = [
     "PerlCallable",
     "PerlModule",
     "PerlValue",
+    "TypedModule",
     "call",
     "cpan",
     "eval",
+    "generate_stubs",
     "hello",
     "interpreter",
+    "register",
+    "typed",
     "use",
 ]
+
+if TYPE_CHECKING:
+    from .typed import TypedModule
 
 type InterpreterGetter = Callable[[], _PerlInterpreter]
 
@@ -174,10 +181,42 @@ def eval(code: str) -> PerlValue:
     return _get_interpreter().eval(code)
 
 
+def register(
+    name: str, func: Callable[..., object] | None = None
+) -> Callable[..., object]:
+    """Register a Python callable as a Perl subroutine."""
+
+    def decorator(callback: Callable[..., object]) -> Callable[..., object]:
+        interp = _get_interpreter()
+        interp.register_callback(name, callback)
+        return callback
+
+    if func is None:
+        return decorator
+    return decorator(func)
+
+
+def typed(module_name: str) -> TypedModule:
+    from .typed import typed as _typed
+
+    globals()["typed"] = _typed
+    return _typed(module_name)
+
+
+def generate_stubs(modules: list[str], output_dir: str) -> None:
+    from .stubs import generate_stubs as _generate_stubs
+
+    _generate_stubs(modules, output_dir)
+
+
 def __getattr__(name: str) -> object:
     if name == "cpan":
         module = import_module(".cpan", __name__)
         globals()["cpan"] = module
         return module
+    if name == "TypedModule":
+        from .typed import TypedModule as _TypedModule
+
+        return _TypedModule
     msg = f"module {__name__!r} has no attribute {name!r}"
     raise AttributeError(msg)
