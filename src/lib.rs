@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 use std::ffi::{CStr, CString, c_char, c_double, c_int, c_longlong};
+use std::ops::Deref;
 use std::ptr;
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Condvar, LazyLock, Mutex};
+use std::thread::{self, ThreadId};
 
 use pyo3::exceptions::{PyRecursionError, PyRuntimeError};
 use pyo3::prelude::*;
@@ -115,6 +117,91 @@ fn check_conversion_depth(depth: usize, message: &'static str) -> PyResult<()> {
         Err(PyRecursionError::new_err(message))
     } else {
         Ok(())
+    }
+}
+
+struct InterpreterState {
+    interp: *mut PerlInterpreterC,
+    owner: Option<ThreadId>,
+    depth: usize,
+}
+
+struct InterpreterLock {
+    state: Mutex<InterpreterState>,
+    available: Condvar,
+}
+
+impl InterpreterLock {
+    fn new(interp: *mut PerlInterpreterC) -> Self {
+        Self {
+            state: Mutex::new(InterpreterState {
+                interp,
+                owner: None,
+                depth: 0,
+            }),
+            available: Condvar::new(),
+        }
+    }
+
+    fn lock(&self) -> InterpreterGuard<'_> {
+        let current = thread::current().id();
+        let mut state = self.state.lock().unwrap();
+
+        loop {
+            match state.owner {
+                Some(owner) if owner == current => {
+                    state.depth += 1;
+                    return InterpreterGuard {
+                        lock: self,
+                        interp: state.interp,
+                    };
+                }
+                Some(_) => {
+                    state = self.available.wait(state).unwrap();
+                }
+                None => {
+                    state.owner = Some(current);
+                    state.depth = 1;
+                    return InterpreterGuard {
+                        lock: self,
+                        interp: state.interp,
+                    };
+                }
+            }
+        }
+    }
+}
+
+struct InterpreterGuard<'a> {
+    lock: &'a InterpreterLock,
+    interp: *mut PerlInterpreterC,
+}
+
+impl Deref for InterpreterGuard<'_> {
+    type Target = *mut PerlInterpreterC;
+
+    fn deref(&self) -> &Self::Target {
+        &self.interp
+    }
+}
+
+impl Drop for InterpreterGuard<'_> {
+    fn drop(&mut self) {
+        let mut state = self
+            .lock
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if thread::panicking() {
+            return;
+        }
+
+        state.depth -= 1;
+        if state.depth == 0 {
+            state.owner = None;
+            drop(state);
+            self.lock.available.notify_one();
+        }
     }
 }
 
@@ -456,11 +543,11 @@ mod _core {
 
     #[pyclass]
     struct PerlInterpreter {
-        inner: Mutex<*mut PerlInterpreterC>,
+        inner: InterpreterLock,
     }
 
-    // Safety: The Mutex ensures only one thread accesses the interpreter at a time.
-    // Perl is not thread-safe, but we serialize access.
+    // Safety: The custom lock ensures only one thread accesses the interpreter at a
+    // time while still allowing callbacks to re-enter from the owning thread.
     unsafe impl Send for PerlInterpreter {}
     unsafe impl Sync for PerlInterpreter {}
 
@@ -483,12 +570,12 @@ mod _core {
             }
             set_current_interpreter(interp);
             Ok(PerlInterpreter {
-                inner: Mutex::new(interp),
+                inner: InterpreterLock::new(interp),
             })
         }
 
         fn use_module(&self, module_name: &str) -> PyResult<()> {
-            let interp = self.inner.lock().unwrap();
+            let interp = self.inner.lock();
             set_current_interpreter(*interp);
             let c_name = CString::new(module_name)
                 .map_err(|_| PyRuntimeError::new_err("Module name contains null byte"))?;
@@ -502,7 +589,7 @@ mod _core {
         }
 
         fn eval(&self, py: Python<'_>, code: &str) -> PyResult<Py<PyAny>> {
-            let interp = self.inner.lock().unwrap();
+            let interp = self.inner.lock();
             set_current_interpreter(*interp);
             let c_code = CString::new(code)
                 .map_err(|_| PyRuntimeError::new_err("Code contains null byte"))?;
@@ -522,7 +609,7 @@ mod _core {
             func_name: &str,
             args: Vec<Bound<'_, pyo3::PyAny>>,
         ) -> PyResult<Py<PyAny>> {
-            let interp = self.inner.lock().unwrap();
+            let interp = self.inner.lock();
             set_current_interpreter(*interp);
             let c_name = CString::new(func_name)
                 .map_err(|_| PyRuntimeError::new_err("Function name contains null byte"))?;
@@ -554,7 +641,7 @@ mod _core {
             method: &str,
             args: Vec<Bound<'_, pyo3::PyAny>>,
         ) -> PyResult<Py<PyAny>> {
-            let interp = self.inner.lock().unwrap();
+            let interp = self.inner.lock();
             set_current_interpreter(*interp);
             let c_module = CString::new(module)
                 .map_err(|_| PyRuntimeError::new_err("Module name contains null byte"))?;
@@ -583,7 +670,7 @@ mod _core {
         }
 
         fn register_callback(&self, name: &str, callable: Py<PyAny>) -> PyResult<()> {
-            let interp = self.inner.lock().unwrap();
+            let interp = self.inner.lock();
             set_current_interpreter(*interp);
             register_callback_impl(*interp, name, callable)
         }
@@ -591,7 +678,7 @@ mod _core {
 
     impl Drop for PerlInterpreter {
         fn drop(&mut self) {
-            let interp = self.inner.lock().unwrap();
+            let interp = self.inner.lock();
             if !(*interp).is_null() {
                 let interp_id = *interp as usize;
                 let mut registry = CALLBACK_REGISTRY.lock().unwrap();
