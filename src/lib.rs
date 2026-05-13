@@ -111,7 +111,7 @@ const PYTHON_VALUE_RECURSION_ERROR: &str =
     "Maximum recursion depth exceeded in Python value conversion";
 
 fn check_conversion_depth(depth: usize, message: &'static str) -> PyResult<()> {
-    if depth > MAX_CONVERSION_DEPTH {
+    if depth >= MAX_CONVERSION_DEPTH {
         Err(PyRecursionError::new_err(message))
     } else {
         Ok(())

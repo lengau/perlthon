@@ -35,7 +35,7 @@ class TestPythonToPerlRecursion:
             perlthon.call("main::consume", value)
 
     def test_deeply_nested_list_argument_raises_recursion_error(self):
-        value = _nested_list(101)
+        value = _nested_list(100)
 
         with pytest.raises(RecursionError, match=RECURSION_ERROR):
             perlthon.call("main::consume", value)
@@ -53,5 +53,5 @@ class TestPerlToPythonRecursion:
     def test_deeply_nested_array_result_raises_recursion_error(self):
         with pytest.raises(RecursionError, match=RECURSION_ERROR):
             perlthon.eval(
-                "do { my $value = 1; for (1..101) { $value = [$value] } $value }"
+                "do { my $value = 1; for (1..100) { $value = [$value] } $value }"
             )
