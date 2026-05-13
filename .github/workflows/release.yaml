@@ -36,6 +36,7 @@ jobs:
           manylinux: auto
           args: --release --out dist
           before-script-linux: |
+            rm -f .cargo/config.toml
             apt-get update && apt-get install -y libperl-dev libcrypt-dev
       - uses: actions/upload-artifact@v4
         with:
@@ -57,6 +58,7 @@ jobs:
           manylinux: auto
           args: --release --out dist
           before-script-linux: |
+            rm -f .cargo/config.toml
             apt-get update && apt-get install -y libperl-dev libcrypt-dev
       - uses: actions/upload-artifact@v4
         with:
@@ -78,6 +80,7 @@ jobs:
           manylinux: auto
           args: --release --out dist
           before-script-linux: |
+            rm -f .cargo/config.toml
             apt-get update && apt-get install -y libperl-dev libcrypt-dev
         env:
           RUSTFLAGS: "-C target-cpu=generic-rv64"
@@ -106,6 +109,7 @@ jobs:
           manylinux: auto
           args: --release --out dist
           before-script-linux: |
+            rm -f .cargo/config.toml
             apt-get update && apt-get install -y libperl-dev libcrypt-dev
         env:
           RUSTFLAGS: "-C target-cpu=generic-rv64 -C target-feature=+v,+zba,+zbb,+zbs,+zicboz,+zicond,+zimop,+zfhmin,+zvfhmin"
