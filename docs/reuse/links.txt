@@ -1,0 +1,5 @@
+.. Reusable link definitions
+
+.. _PyO3: https://pyo3.rs
+.. _CPAN: https://www.cpan.org
+.. _perlembed: https://perldoc.perl.org/perlembed
