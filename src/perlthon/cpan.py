@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import os
 import re
 import shlex
@@ -7,10 +8,13 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 
 from ._perl import _find_perl
 
 _MODULE_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$")
+_DEFAULT_CPAN_MIRROR = "https://cpan.metacpan.org"
+_PERL_ENV_PREFIX = "PERL"
 
 
 def _default_home_lib() -> Path:
@@ -61,6 +65,45 @@ def _perl_env(lib_dir: Path) -> dict[str, str]:
     return env
 
 
+def _cpanm_env(lib_dir: Path | None = None) -> dict[str, str]:
+    env = os.environ.copy()
+    for key in tuple(env):
+        if key.startswith(_PERL_ENV_PREFIX):
+            env.pop(key, None)
+    if lib_dir is not None:
+        _apply_local_lib_env(env, lib_dir)
+    return env
+
+
+def _normalize_mirror(mirror: str | None) -> str:
+    mirror_url = mirror or _DEFAULT_CPAN_MIRROR
+    parsed = urlparse(mirror_url)
+    if parsed.scheme != "https" or not parsed.netloc:
+        raise ValueError("mirror must be an HTTPS URL")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError(
+            "Mirror URLs must not contain credentials; "
+            "use external auth mechanisms instead."
+        )
+    if parsed.query or parsed.fragment:
+        raise ValueError("mirror must not include query parameters or fragments")
+    return mirror_url
+
+
+@functools.cache
+def _cpanm_supports_verify(cpanm: str) -> bool:
+    result = subprocess.run(
+        [_find_perl(), cpanm, "--help"],
+        capture_output=True,
+        check=False,
+        env=_cpanm_env(),
+        text=True,
+    )
+    if result.returncode != 0:
+        return False
+    return "--verify" in f"{result.stdout}\n{result.stderr}"
+
+
 def _validate_modules(modules: tuple[str, ...]) -> None:
     invalid = [module for module in modules if not _MODULE_NAME_RE.fullmatch(module)]
     if invalid:
@@ -74,8 +117,14 @@ def _reset_interpreter() -> None:
     perlthon._interpreter = None
 
 
-def install(*modules: str, lib: str | None = None) -> None:
-    """Install one or more Perl modules with cpanm."""
+def install(*modules: str, lib: str | None = None, mirror: str | None = None) -> None:
+    """Install Perl modules with cpanm using an explicit HTTPS mirror.
+
+    Perlthon ignores ambient ``PERL_CPANM_*`` configuration, defaults to the
+    trusted ``https://cpan.metacpan.org`` mirror, and enables ``cpanm
+    --verify`` automatically when the local cpanm supports it. Pass ``mirror``
+    to use a different HTTPS mirror.
+    """
     if not modules:
         return
 
@@ -88,11 +137,16 @@ def install(*modules: str, lib: str | None = None) -> None:
             "Install it first, for example with `apt-get install cpanminus`."
         )
 
+    mirror_url = _normalize_mirror(mirror)
     lib_dir = _normalize_lib_dir(lib)
     lib_dir.mkdir(parents=True, exist_ok=True)
-    env = _perl_env(lib_dir)
+    env = _cpanm_env(lib_dir)
+    command = [_find_perl(), cpanm, "--from", mirror_url, "--mirror-only"]
+    if _cpanm_supports_verify(cpanm):
+        command.append("--verify")
+    command.extend(["-L", str(lib_dir), *modules])
     result = subprocess.run(
-        [_find_perl(), cpanm, "-L", str(lib_dir), *modules],
+        command,
         capture_output=True,
         check=False,
         env=env,
