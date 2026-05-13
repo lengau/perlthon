@@ -37,8 +37,11 @@ jobs:
         run: rm -f .cargo/config.toml
       - uses: dtolnay/rust-toolchain@stable
       - uses: astral-sh/setup-uv@v6
-      - name: Install Perl dev headers
-        run: sudo apt-get update && sudo apt-get install -y libperl-dev libcrypt-dev
+      - name: Install Perl dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y perl libperl-dev libcrypt-dev libcrypt1
+          perl -e 'use POSIX; print "POSIX OK\n"'
       - run: uv run pytest -v
 
   wheel-linux-amd64:
