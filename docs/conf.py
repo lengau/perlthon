@@ -36,6 +36,8 @@ intersphinx_mapping = {
 # HTML theme
 html_theme = "furo"
 html_title = "Perlthon"
+html_logo = "_static/logo.png"
+html_favicon = "_static/logo.png"
 html_theme_options = {
     "light_css_variables": {
         "color-brand-primary": "#306998",  # Python blue
@@ -45,7 +47,7 @@ html_theme_options = {
         "color-brand-primary": "#56b6c2",
         "color-brand-content": "#6ec2d4",
     },
-    "sidebar_hide_name": False,
+    "sidebar_hide_name": True,
     "navigation_with_keys": True,
     "footer_icons": [
         {

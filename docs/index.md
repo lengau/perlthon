@@ -1,4 +1,10 @@
-# Perlthon 🐪🐍
+# Perlthon
+
+```{image} _static/logo.png
+:alt: Perlthon Logo
+:width: 400px
+:align: center
+```
 
 ```{toctree}
 :maxdepth: 2
