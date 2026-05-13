@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 
 from ._perl import _find_perl
-from .typed import _introspect_module
+from .typed import _introspect_module, _python_safe_name
 
 _POD_MARKUP_RE = re.compile(r"[A-Z]<([^>]+)>")
 _POD_NAME_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)")
@@ -133,6 +133,7 @@ def _docstring_block(text: str, indent: str = "    ") -> str:
 def _render_stub(module_name: str, functions: list[str]) -> str:
     class_name = _class_name(module_name)
     docs = _pod_docs(module_name, functions)
+    used_names = {"available_functions"}
     lines = [
         "from typing import Any\n",
         "\n",
@@ -146,8 +147,14 @@ def _render_stub(module_name: str, functions: list[str]) -> str:
     for function_name in functions:
         if not function_name.isidentifier():
             continue
+        stub_name = _python_safe_name(function_name)
+        while stub_name in used_names:
+            stub_name += "_"
+        used_names.add(stub_name)
         lines.append("\n")
-        lines.append(f"    def {function_name}(self, *args: Any) -> Any:\n")
+        if stub_name != function_name:
+            lines.append(f"    # Perl: {function_name} -> Python: {stub_name}\n")
+        lines.append(f"    def {stub_name}(self, *args: Any) -> Any:\n")
         if doc := docs.get(function_name):
             lines.append(_docstring_block(doc, indent="        "))
         lines.append("        ...\n")
