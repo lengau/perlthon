@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
 from typing import Any
 
@@ -84,11 +85,13 @@ class Interpreter:
 
     def __init__(self) -> None:
         self._interp: _PerlInterpreter | None = _PerlInterpreter()
+        self._lock = threading.Lock()
 
     def _get_interp(self) -> _PerlInterpreter:
-        if self._interp is None:
-            raise _ClosedInterpreterError()
-        return self._interp
+        with self._lock:
+            if self._interp is None:
+                raise _ClosedInterpreterError()
+            return self._interp
 
     def eval(self, code: str) -> PerlValue:
         return self._get_interp().eval(code)
@@ -102,7 +105,8 @@ class Interpreter:
         return self._get_interp().call_function(function_name, list(args))
 
     def close(self) -> None:
-        self._interp = None
+        with self._lock:
+            self._interp = None
 
     def __enter__(self) -> Interpreter:
         self._get_interp()
