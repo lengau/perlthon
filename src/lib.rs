@@ -104,6 +104,20 @@ static CALLBACK_REGISTRY: LazyLock<Mutex<CallbackRegistry>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 static CURRENT_INTERPRETER: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
 
+const MAX_CONVERSION_DEPTH: usize = 100;
+const PERL_VALUE_RECURSION_ERROR: &str =
+    "Maximum recursion depth exceeded in Perl value conversion";
+const PYTHON_VALUE_RECURSION_ERROR: &str =
+    "Maximum recursion depth exceeded in Python value conversion";
+
+fn check_conversion_depth(depth: usize, message: &'static str) -> PyResult<()> {
+    if depth > MAX_CONVERSION_DEPTH {
+        Err(PyRuntimeError::new_err(message))
+    } else {
+        Ok(())
+    }
+}
+
 /// Check the error pointer and return a PyErr if set.
 unsafe fn check_error(error: *mut c_char) -> PyResult<()> {
     if error.is_null() {
@@ -122,7 +136,10 @@ unsafe fn sv_to_py(
     py: Python<'_>,
     interp: *mut PerlInterpreterC,
     sv: *mut SV,
+    depth: usize,
 ) -> PyResult<Py<PyAny>> {
+    check_conversion_depth(depth, PERL_VALUE_RECURSION_ERROR)?;
+
     if sv.is_null() {
         return Ok(py.None());
     }
@@ -150,7 +167,7 @@ unsafe fn sv_to_py(
             let list = PyList::empty(py);
             for i in 0..count {
                 let elem = unsafe { perlthon_av_fetch(interp, sv, i) };
-                let py_elem = unsafe { sv_to_py(py, interp, elem) }?;
+                let py_elem = unsafe { sv_to_py(py, interp, elem, depth + 1) }?;
                 list.append(py_elem)?;
                 if !elem.is_null() {
                     unsafe { perlthon_sv_decref(interp, elem) };
@@ -172,7 +189,7 @@ unsafe fn sv_to_py(
                 }
                 let key_bytes = unsafe { std::slice::from_raw_parts(key as *const u8, klen) };
                 let key_str = String::from_utf8_lossy(key_bytes);
-                let py_val = unsafe { sv_to_py(py, interp, val) }?;
+                let py_val = unsafe { sv_to_py(py, interp, val, depth + 1) }?;
                 dict.set_item(key_str.as_ref(), py_val)?;
                 if !val.is_null() {
                     unsafe { perlthon_sv_decref(interp, val) };
@@ -195,7 +212,10 @@ unsafe fn py_to_sv(
     _py: Python<'_>,
     interp: *mut PerlInterpreterC,
     obj: &Bound<'_, pyo3::PyAny>,
+    depth: usize,
 ) -> PyResult<*mut SV> {
+    check_conversion_depth(depth, PYTHON_VALUE_RECURSION_ERROR)?;
+
     if obj.is_none() {
         return Ok(unsafe { perlthon_new_sv_undef(interp) });
     }
@@ -216,7 +236,7 @@ unsafe fn py_to_sv(
     if let Ok(list) = obj.cast::<PyList>() {
         let av = unsafe { perlthon_new_av(interp) };
         for item in list.iter() {
-            let value = match unsafe { py_to_sv(_py, interp, &item) } {
+            let value = match unsafe { py_to_sv(_py, interp, &item, depth + 1) } {
                 Ok(value) => value,
                 Err(err) => {
                     unsafe { decref_sv(interp, av) };
@@ -230,7 +250,7 @@ unsafe fn py_to_sv(
     if let Ok(tuple) = obj.cast::<PyTuple>() {
         let av = unsafe { perlthon_new_av(interp) };
         for item in tuple.iter() {
-            let value = match unsafe { py_to_sv(_py, interp, &item) } {
+            let value = match unsafe { py_to_sv(_py, interp, &item, depth + 1) } {
                 Ok(value) => value,
                 Err(err) => {
                     unsafe { decref_sv(interp, av) };
@@ -258,7 +278,7 @@ unsafe fn py_to_sv(
                     return Err(PyRuntimeError::new_err("Dict key contains null byte"));
                 }
             };
-            let sv_value = match unsafe { py_to_sv(_py, interp, &value) } {
+            let sv_value = match unsafe { py_to_sv(_py, interp, &value, depth + 1) } {
                 Ok(sv_value) => sv_value,
                 Err(err) => {
                     unsafe { decref_sv(interp, hv) };
@@ -313,7 +333,7 @@ fn args_to_sv(
 ) -> PyResult<Vec<*mut SV>> {
     let mut sv_args = Vec::with_capacity(args.len());
     for arg in args {
-        match unsafe { py_to_sv(py, interp, arg) } {
+        match unsafe { py_to_sv(py, interp, arg, 0) } {
             Ok(sv) => sv_args.push(sv),
             Err(err) => {
                 unsafe { free_sv_args(interp, &mut sv_args) };
@@ -388,14 +408,14 @@ unsafe extern "C" fn perlthon_dispatch_callback(
                 let values = unsafe { std::slice::from_raw_parts(argv, argc as usize) };
                 let mut converted = Vec::with_capacity(values.len());
                 for value in values {
-                    converted.push(unsafe { sv_to_py(py, interp, *value) }?);
+                    converted.push(unsafe { sv_to_py(py, interp, *value, 0) }?);
                 }
                 converted
             };
 
             let tuple = PyTuple::new(py, py_args)?;
             let result = callback.call1(py, tuple)?;
-            unsafe { py_to_sv(py, interp, result.bind(py)) }
+            unsafe { py_to_sv(py, interp, result.bind(py), 0) }
         })
     })();
 
@@ -489,7 +509,7 @@ mod _core {
             let mut error: *mut c_char = ptr::null_mut();
             let sv = unsafe { perlthon_eval(*interp, c_code.as_ptr(), &mut error) };
             unsafe { check_error(error) }?;
-            let result = unsafe { sv_to_py(py, *interp, sv) };
+            let result = unsafe { sv_to_py(py, *interp, sv, 0) };
             if !sv.is_null() {
                 unsafe { perlthon_sv_decref(*interp, sv) };
             }
@@ -520,7 +540,7 @@ mod _core {
             };
             unsafe { free_sv_args(*interp, &mut sv_args) };
             unsafe { check_error(error) }?;
-            let result = unsafe { sv_to_py(py, *interp, sv) };
+            let result = unsafe { sv_to_py(py, *interp, sv, 0) };
             if !sv.is_null() {
                 unsafe { perlthon_sv_decref(*interp, sv) };
             }
@@ -555,7 +575,7 @@ mod _core {
             };
             unsafe { free_sv_args(*interp, &mut sv_args) };
             unsafe { check_error(error) }?;
-            let result = unsafe { sv_to_py(py, *interp, sv) };
+            let result = unsafe { sv_to_py(py, *interp, sv, 0) };
             if !sv.is_null() {
                 unsafe { perlthon_sv_decref(*interp, sv) };
             }
