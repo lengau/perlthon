@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -12,11 +13,15 @@ from ._perl import _find_perl
 _MODULE_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$")
 
 
+def _default_home_lib() -> Path:
+    return Path.home() / ".local" / "share" / "perlthon" / "lib"
+
+
 def get_lib_dir() -> Path:
     """Return the default local::lib root used for CPAN installs."""
     if sys.prefix != sys.base_prefix:
         return Path(sys.prefix) / "perl5lib"
-    return Path.home() / ".local" / "share" / "perlthon" / "lib"
+    return _default_home_lib()
 
 
 def _normalize_lib_dir(lib: str | None) -> Path:
@@ -46,8 +51,8 @@ def _apply_local_lib_env(env: dict[str, str], lib_dir: Path) -> None:
     env["PERL_LOCAL_LIB_ROOT"] = os.pathsep.join(
         [lib_root, *[entry for entry in existing_roots if entry != lib_root]]
     )
-    env["PERL_MB_OPT"] = f"--install_base {lib_dir}"
-    env["PERL_MM_OPT"] = f"INSTALL_BASE={lib_dir}"
+    env["PERL_MB_OPT"] = f"--install_base {shlex.quote(str(lib_dir))}"
+    env["PERL_MM_OPT"] = f"INSTALL_BASE={shlex.quote(str(lib_dir))}"
 
 
 def _perl_env(lib_dir: Path) -> dict[str, str]:
@@ -106,14 +111,16 @@ def is_installed(module: str) -> bool:
     if not _MODULE_NAME_RE.fullmatch(module):
         return False
 
-    _apply_local_lib_env(os.environ, get_lib_dir())
-
-    from perlthon import eval as perl_eval
-
-    try:
-        return bool(perl_eval(f"eval {{ require {module}; 1 }} ? 1 : 0"))
-    except RuntimeError:
+    result = subprocess.run(
+        [_find_perl(), "-e", f"print(eval {{ require {module}; 1 }} ? 1 : 0)"],
+        capture_output=True,
+        check=False,
+        env=_perl_env(get_lib_dir()),
+        text=True,
+    )
+    if result.returncode != 0:
         return False
+    return result.stdout.strip() == "1"
 
 
 def installed() -> list[str]:
